@@ -11,11 +11,14 @@ import 'package:provider/provider.dart';
 import '../models/track.dart';
 import '../navigation/library_navigation.dart';
 import '../screens/metadata_editor_screen.dart';
+import '../services/library_service.dart';
 import '../services/player_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/breakpoints.dart';
 import '../utils/duration_format.dart';
 import '../utils/lyrics_format.dart';
+import '../utils/playlist_actions.dart';
+import 'track_overflow_menu.dart';
 import '../utils/trash_actions.dart';
 
 const _kYellow = Color(0xFFFFDB4D);
@@ -76,17 +79,10 @@ class _MiniPlayerState extends State<MiniPlayer> {
     }
   }
 
-  void _closePanels() {
-    _hideVolume();
-    setState(() {
-      _showLyrics = false;
-      _showQueue = false;
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final player = context.watch<PlayerService>();
+    final library = context.watch<LibraryService>();
     final track = player.current;
     if (track == null) {
       _hideVolume();
@@ -97,17 +93,26 @@ class _MiniPlayerState extends State<MiniPlayer> {
             player.duration!.inMilliseconds == 0
         ? 0.0
         : player.position.inMilliseconds / player.duration!.inMilliseconds;
-    final lyricsText = formatLyrics(track.lyrics);
-    final canShowLyrics = lyricsText.isNotEmpty;
+    final libTrack = library.trackByKey(track.trackKey);
+    final lyricsSource = libTrack ?? track;
+    final lyricsText = formatLyrics(lyricsSource.lyrics);
+    final lyricsFetching = library.isFetchingLyrics(track.trackKey);
+    final lyricsFailed = library.lyricsLookupFailed(track.trackKey);
     final phone = isPhone(context);
     final wide = MediaQuery.sizeOf(context).width >= 720;
 
     void toggleLyrics() {
       _hideVolume();
+      final opening = !_showLyrics;
       setState(() {
         _showQueue = false;
-        _showLyrics = !_showLyrics;
+        _showLyrics = opening;
       });
+      if (opening && lyricsText.isEmpty) {
+        library.ensureRemoteLyrics(lyricsSource).then((updated) {
+          if (updated != null) player.syncTrack(updated);
+        });
+      }
     }
 
     void toggleQueue() {
@@ -135,6 +140,8 @@ class _MiniPlayerState extends State<MiniPlayer> {
           ? _LyricsPanel(
               title: track.displayTitle,
               lyrics: lyricsText,
+              fetching: lyricsFetching,
+              notFound: lyricsFailed && lyricsText.isEmpty,
               onClose: () => setState(() => _showLyrics = false),
             )
           : _QueuePanel(
@@ -165,10 +172,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
             ),
             child: Column(
               children: [
-                _TrackInfo(
-                  track: track,
-                  onMenu: () => _openTrackMenu(context, track),
-                ),
+                _TrackInfo(track: track),
                 const SizedBox(height: 6),
                 _CenterControls(player: player),
                 const SizedBox(height: 2),
@@ -178,9 +182,12 @@ class _MiniPlayerState extends State<MiniPlayer> {
                     _IconBtn(
                       icon: Icons.lyrics_outlined,
                       active: _showLyrics,
-                      enabled: canShowLyrics,
-                      tooltip: canShowLyrics ? 'Текст' : 'Текста нет',
-                      onPressed: canShowLyrics ? toggleLyrics : null,
+                      tooltip: lyricsText.isNotEmpty
+                          ? 'Текст'
+                          : lyricsFetching
+                              ? 'Ищем текст…'
+                              : 'Текст',
+                      onPressed: toggleLyrics,
                       size: 24,
                     ),
                     _IconBtn(
@@ -190,6 +197,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                       onPressed: toggleQueue,
                       size: 24,
                     ),
+                    const _TrashBtn(size: 24),
                     _volumeControl(player, iconSize: 24),
                   ],
                 ),
@@ -215,10 +223,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
               children: [
                 Expanded(
                   flex: wide ? 3 : 2,
-                  child: _TrackInfo(
-                    track: track,
-                    onMenu: () => _openTrackMenu(context, track),
-                  ),
+                  child: _TrackInfo(track: track),
                 ),
                 if (wide) ...[
                   Expanded(
@@ -228,12 +233,16 @@ class _MiniPlayerState extends State<MiniPlayer> {
                   Expanded(
                     flex: 3,
                     child: _RightControls(
-                      canShowLyrics: canShowLyrics,
                       lyricsOpen: _showLyrics,
                       queueOpen: _showQueue,
-                      onToggleLyrics: canShowLyrics ? toggleLyrics : null,
+                      onToggleLyrics: toggleLyrics,
                       onToggleQueue: toggleQueue,
                       volumeControl: _volumeControl(player),
+                      lyricsTooltip: lyricsText.isNotEmpty
+                          ? 'Текст'
+                          : lyricsFetching
+                              ? 'Ищем текст…'
+                              : 'Текст',
                     ),
                   ),
                 ] else ...[
@@ -242,9 +251,12 @@ class _MiniPlayerState extends State<MiniPlayer> {
                   _IconBtn(
                     icon: Icons.lyrics_outlined,
                     active: _showLyrics,
-                    enabled: canShowLyrics,
-                    tooltip: canShowLyrics ? 'Текст' : 'Текста нет',
-                    onPressed: canShowLyrics ? toggleLyrics : null,
+                    tooltip: lyricsText.isNotEmpty
+                        ? 'Текст'
+                        : lyricsFetching
+                            ? 'Ищем текст…'
+                            : 'Текст',
+                    onPressed: toggleLyrics,
                   ),
                   _IconBtn(
                     icon: Icons.queue_music_rounded,
@@ -252,6 +264,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                     tooltip: 'Очередь',
                     onPressed: toggleQueue,
                   ),
+                  const _TrashBtn(),
                   _volumeControl(player),
                 ],
               ],
@@ -272,7 +285,10 @@ class _MiniPlayerState extends State<MiniPlayer> {
           children: [
             Padding(
               padding: EdgeInsets.fromLTRB(phone ? 8 : 10, 0, phone ? 8 : 10, 8),
-              child: DecoratedBox(
+              // Clip.none so the progress thumb can sit on the top edge
+              // without being cut by the rounded bar.
+              child: Container(
+                clipBehavior: Clip.none,
                 decoration: BoxDecoration(
                   color: _kBar,
                   borderRadius: BorderRadius.circular(16),
@@ -294,49 +310,6 @@ class _MiniPlayerState extends State<MiniPlayer> {
         ),
       ),
     );
-  }
-
-  Future<void> _openTrackMenu(BuildContext context, Track track) async {
-    _closePanels();
-    final value = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: AppTheme.inkLift,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.edit_outlined),
-              title: const Text('Метаданные'),
-              onTap: () => Navigator.pop(ctx, 'edit'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.copy_rounded),
-              title: const Text('Копировать название'),
-              onTap: () => Navigator.pop(ctx, 'copy'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline_rounded),
-              title: const Text('В корзину'),
-              onTap: () => Navigator.pop(ctx, 'trash'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (!context.mounted || value == null) return;
-    if (value == 'edit') {
-      await openMetadataEditor(context, track);
-    } else if (value == 'copy') {
-      await Clipboard.setData(
-        ClipboardData(text: '${track.displayArtist} - ${track.displayTitle}'),
-      );
-    } else if (value == 'trash') {
-      await moveTrackToTrash(context, track);
-    }
   }
 
   IconData _volumeIcon(double v) {
@@ -434,7 +407,9 @@ class _ProgressStripState extends State<_ProgressStrip> {
     final durLabel = formatTrackDuration(totalMs > 0 ? totalMs : null);
     final p = widget.progress.clamp(0.0, 1.0);
     final trackH = _hover ? 3.0 : 2.0;
-    const hitH = 14.0;
+    final thumbR = _hover ? 5.5 : 4.0;
+    // Hit area below the top border; track itself is painted on y=0 (edge).
+    const hitH = 12.0;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -453,25 +428,19 @@ class _ProgressStripState extends State<_ProgressStrip> {
             return Stack(
               clipBehavior: Clip.none,
               children: [
-                // Time chips float above the bar — outside the clip.
                 if (_hover) ...[
                   Positioned(
                     left: (thumbX - 22).clamp(6.0, math.max(6.0, width - 52)),
-                    top: -26,
+                    top: -28,
                     child: _TimeChip(posLabel),
                   ),
                   Positioned(
                     right: 8,
-                    top: -26,
+                    top: -28,
                     child: _TimeChip(durLabel),
                   ),
                 ],
-                // Clip to player top corners so the track doesn't spill out.
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  top: 0,
-                  height: hitH,
+                Positioned.fill(
                   child: ClipRRect(
                     borderRadius: const BorderRadius.vertical(
                       top: Radius.circular(16),
@@ -489,13 +458,26 @@ class _ProgressStripState extends State<_ProgressStrip> {
                         painter: _ProgressTrackPainter(
                           progress: p,
                           trackHeight: trackH,
-                          showThumb: _hover || p > 0,
-                          thumbRadius: _hover ? 5.5 : 4.0,
                         ),
                       ),
                     ),
                   ),
                 ),
+                if (_hover || p > 0)
+                  Positioned(
+                    left: (width * p).clamp(thumbR, width - thumbR) - thumbR,
+                    top: trackH / 2 - thumbR,
+                    child: IgnorePointer(
+                      child: Container(
+                        width: thumbR * 2,
+                        height: thumbR * 2,
+                        decoration: const BoxDecoration(
+                          color: _kYellow,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             );
           },
@@ -509,18 +491,15 @@ class _ProgressTrackPainter extends CustomPainter {
   _ProgressTrackPainter({
     required this.progress,
     required this.trackHeight,
-    required this.showThumb,
-    required this.thumbRadius,
   });
 
   final double progress;
   final double trackHeight;
-  final bool showThumb;
-  final double thumbRadius;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final cy = trackHeight / 2;
+    // Line sits on the player's top edge. The parent ClipRRect (radius 16)
+    // follows the bar's rounded corners so the ends don't float past them.
     final track = RRect.fromLTRBR(
       0,
       0,
@@ -544,21 +523,12 @@ class _ProgressTrackPainter extends CustomPainter {
         Paint()..color = _kYellow,
       );
     }
-    if (showThumb) {
-      canvas.drawCircle(
-        Offset(size.width * progress, cy),
-        thumbRadius,
-        Paint()..color = _kYellow,
-      );
-    }
   }
 
   @override
   bool shouldRepaint(covariant _ProgressTrackPainter oldDelegate) =>
       oldDelegate.progress != progress ||
-      oldDelegate.trackHeight != trackHeight ||
-      oldDelegate.showThumb != showThumb ||
-      oldDelegate.thumbRadius != thumbRadius;
+      oldDelegate.trackHeight != trackHeight;
 }
 
 class _TimeChip extends StatelessWidget {
@@ -599,13 +569,9 @@ class _TimeChip extends StatelessWidget {
 }
 
 class _TrackInfo extends StatelessWidget {
-  const _TrackInfo({
-    required this.track,
-    required this.onMenu,
-  });
+  const _TrackInfo({required this.track});
 
   final Track track;
-  final VoidCallback onMenu;
 
   @override
   Widget build(BuildContext context) {
@@ -640,18 +606,37 @@ class _TrackInfo extends StatelessWidget {
                       ),
                     ),
                   ),
-                  InkWell(
-                    mouseCursor: SystemMouseCursors.click,
-                    onTap: onMenu,
-                    borderRadius: BorderRadius.circular(12),
-                    child: const Padding(
-                      padding: EdgeInsets.all(4),
-                      child: Icon(
-                        Icons.more_horiz_rounded,
-                        size: 18,
-                        color: _kIconDim,
+                  TrackOverflowMenu(
+                    dense: true,
+                    icon: Icons.more_horiz,
+                    actions: [
+                      TrackMenuAction(
+                        icon: Icons.edit_outlined,
+                        label: 'Метаданные',
+                        onSelected: () => openMetadataEditor(context, track),
                       ),
-                    ),
+                      TrackMenuAction(
+                        icon: Icons.queue_music_rounded,
+                        label: 'В плейлист',
+                        onSelected: () => addTrackToPlaylist(context, track),
+                      ),
+                      TrackMenuAction(
+                        icon: Icons.copy_rounded,
+                        label: 'Копировать название',
+                        onSelected: () => Clipboard.setData(
+                          ClipboardData(
+                            text:
+                                '${track.displayArtist} - ${track.displayTitle}',
+                          ),
+                        ),
+                      ),
+                      TrackMenuAction(
+                        icon: Icons.delete_outline_rounded,
+                        label: 'В корзину',
+                        destructive: true,
+                        onSelected: () => moveTrackToTrash(context, track),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -738,8 +723,8 @@ class _CenterControls extends StatelessWidget {
         ),
         _IconBtn(
           icon: switch (player.repeat) {
-            PlayRepeatMode.one => Icons.repeat_one_rounded,
-            _ => Icons.repeat_rounded,
+            PlayRepeatMode.one => Icons.repeat_one,
+            _ => Icons.repeat,
           },
           active: player.repeat != PlayRepeatMode.off,
           tooltip: switch (player.repeat) {
@@ -786,20 +771,20 @@ class _CompactCenter extends StatelessWidget {
 
 class _RightControls extends StatelessWidget {
   const _RightControls({
-    required this.canShowLyrics,
     required this.lyricsOpen,
     required this.queueOpen,
     required this.onToggleLyrics,
     required this.onToggleQueue,
     required this.volumeControl,
+    required this.lyricsTooltip,
   });
 
-  final bool canShowLyrics;
   final bool lyricsOpen;
   final bool queueOpen;
-  final VoidCallback? onToggleLyrics;
+  final VoidCallback onToggleLyrics;
   final VoidCallback onToggleQueue;
   final Widget volumeControl;
+  final String lyricsTooltip;
 
   @override
   Widget build(BuildContext context) {
@@ -815,10 +800,10 @@ class _RightControls extends StatelessWidget {
         _IconBtn(
           icon: Icons.lyrics_outlined,
           active: lyricsOpen,
-          enabled: canShowLyrics,
-          tooltip: canShowLyrics ? 'Текст' : 'Текста нет',
+          tooltip: lyricsTooltip,
           onPressed: onToggleLyrics,
         ),
+        _TrashBtn(),
         volumeControl,
       ],
     );
@@ -858,6 +843,24 @@ class _PlayButton extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _TrashBtn extends StatelessWidget {
+  const _TrashBtn({this.size = 22});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final track = context.watch<PlayerService>().current;
+    return _IconBtn(
+      icon: Icons.delete_outline_rounded,
+      tooltip: '',
+      size: size,
+      onPressed: track == null ? null : () => moveTrackToTrash(context, track),
+      enabled: track != null,
     );
   }
 }
@@ -906,9 +909,15 @@ class _YandexVolumeCapsule extends StatelessWidget {
   final double volume;
   final ValueChanged<double> onChanged;
 
+  static const _step = 0.05;
+
   void _setFromLocalY(double localY, double height) {
-    final t = 1.0 - (localY / height);
-    onChanged(t.clamp(0.0, 1.0));
+    const pad = 22.0;
+    final usable = (height - pad * 2).clamp(1.0, height);
+    final t = 1.0 - ((localY - pad) / usable);
+    // Snap to 10% steps so the bar feels chunky.
+    final snapped = (t.clamp(0.0, 1.0) / _step).round() * _step;
+    onChanged(snapped.clamp(0.0, 1.0));
   }
 
   @override
@@ -923,6 +932,7 @@ class _YandexVolumeCapsule extends StatelessWidget {
         child: Container(
           width: width,
           height: height,
+          clipBehavior: Clip.none,
           decoration: BoxDecoration(
             color: const Color(0xFF2C2C2C),
             borderRadius: BorderRadius.circular(width / 2),
@@ -943,7 +953,7 @@ class _YandexVolumeCapsule extends StatelessWidget {
               return Listener(
                 onPointerSignal: (signal) {
                   if (signal is! PointerScrollEvent) return;
-                  final step = signal.scrollDelta.dy > 0 ? -0.05 : 0.05;
+                  final step = signal.scrollDelta.dy > 0 ? -_step : _step;
                   onChanged((volume + step).clamp(0.0, 1.0));
                 },
                 child: GestureDetector(
@@ -975,7 +985,7 @@ class _VolumeCapsulePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final cx = size.width / 2;
-    const pad = 16.0;
+    const pad = 22.0;
     const thumbR = 7.0;
     final trackTop = pad;
     final trackBottom = size.height - pad;
@@ -1029,15 +1039,41 @@ class _LyricsPanel extends StatelessWidget {
   const _LyricsPanel({
     required this.title,
     required this.lyrics,
+    required this.fetching,
+    required this.notFound,
     required this.onClose,
   });
 
   final String title;
   final String lyrics;
+  final bool fetching;
+  final bool notFound;
   final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) {
+    final body = lyrics.isNotEmpty
+        ? SelectableText(
+            lyrics,
+            style: GoogleFonts.figtree(
+              color: AppTheme.paper,
+              fontSize: 15,
+              height: 1.55,
+            ),
+          )
+        : Text(
+            fetching
+                ? 'Ищем текст на LRCLIB…'
+                : notFound
+                    ? 'Текст не найден'
+                    : 'Текста нет',
+            style: GoogleFonts.figtree(
+              color: _kIconDim,
+              fontSize: 14,
+              height: 1.45,
+            ),
+          );
+
     return Container(
       width: double.infinity,
       constraints: const BoxConstraints(maxHeight: 200),
@@ -1065,6 +1101,18 @@ class _LyricsPanel extends StatelessWidget {
                   ),
                 ),
               ),
+              if (fetching)
+                const Padding(
+                  padding: EdgeInsets.only(right: 4),
+                  child: SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: _kYellow,
+                    ),
+                  ),
+                ),
               IconButton(
                 onPressed: onClose,
                 icon: const Icon(Icons.close, size: 18, color: _kIconDim),
@@ -1073,16 +1121,7 @@ class _LyricsPanel extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Expanded(
-            child: SingleChildScrollView(
-              child: SelectableText(
-                lyrics,
-                style: GoogleFonts.figtree(
-                  color: AppTheme.paper,
-                  fontSize: 15,
-                  height: 1.55,
-                ),
-              ),
-            ),
+            child: SingleChildScrollView(child: body),
           ),
         ],
       ),
