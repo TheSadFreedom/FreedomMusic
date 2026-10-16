@@ -2,6 +2,8 @@ import 'package:path/path.dart' as p;
 
 import '../data/track_key.dart';
 
+final _searchCache = Expando<String>();
+
 class Track {
   const Track({
     required this.trackKey,
@@ -72,7 +74,10 @@ class Track {
       album.trim().isEmpty ? 'Unknown' : album;
 
   /// All text used by home search (title, artists, album, lyrics, …).
+  /// Cached: lyrics are long, and search must not rebuild this per keystroke.
   String get searchableText {
+    final cached = _searchCache[this];
+    if (cached != null) return cached;
     final names = <String>[
       title,
       artist,
@@ -83,7 +88,9 @@ class Track {
       if (year != null) year.toString(),
       for (final path in filePaths) p.basenameWithoutExtension(path),
     ];
-    return names.join(' ').toLowerCase();
+    final value = names.join(' ').toLowerCase();
+    _searchCache[this] = value;
+    return value;
   }
 
   bool matchesQuery(String query) {

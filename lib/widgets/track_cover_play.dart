@@ -37,7 +37,8 @@ class _TrackCoverPlayState extends State<TrackCoverPlay> {
       ),
     );
     final path = widget.path;
-    if (path != null && File(path).existsSync()) {
+    if (path != null && path.isNotEmpty) {
+      final placeholder = image;
       final px = (widget.size * 2).round().clamp(48, 256);
       image = Image.file(
         File(path),
@@ -45,13 +46,23 @@ class _TrackCoverPlayState extends State<TrackCoverPlay> {
         cacheWidth: px,
         cacheHeight: px,
         filterQuality: FilterQuality.low,
-        errorBuilder: (_, _, _) => image,
+        errorBuilder: (_, _, _) => placeholder,
+        gaplessPlayback: true,
       );
     }
 
     return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
+      onEnter: (_) {
+        final scrolling =
+            Scrollable.maybeOf(context)?.position.isScrollingNotifier.value ??
+                false;
+        if (scrolling || _hover) return;
+        setState(() => _hover = true);
+      },
+      onExit: (_) {
+        if (!_hover) return;
+        setState(() => _hover = false);
+      },
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
         onTap: widget.onPlay,

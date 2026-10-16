@@ -164,22 +164,25 @@ class LibraryService extends ChangeNotifier {
     final q = query.trim().toLowerCase();
     if (q.isEmpty) return true;
     final tokens = q.split(RegExp(r'\s+')).where((t) => t.isNotEmpty);
-    final hay = StringBuffer(track.searchableText);
+    final hay = track.searchableText;
+    if (tokens.every(hay.contains)) return true;
+    // Alias card names are short; only scan them when the file text missed.
+    final extra = StringBuffer();
     final names = <String>[
       ...track.artists,
       ...splitArtists(track.albumArtist),
     ];
     for (final name in names) {
       final card = artistCardName(name);
-      hay.write(' ');
-      hay.write(card.toLowerCase());
+      extra.write(' ');
+      extra.write(card.toLowerCase());
       for (final alias in aliasLabelsForCard(card)) {
-        hay.write(' ');
-        hay.write(alias.toLowerCase());
+        extra.write(' ');
+        extra.write(alias.toLowerCase());
       }
     }
-    final text = hay.toString();
-    return tokens.every(text.contains);
+    final more = extra.toString();
+    return tokens.every((t) => hay.contains(t) || more.contains(t));
   }
 
   Playlist? get trashPlaylist {

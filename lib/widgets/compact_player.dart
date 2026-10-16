@@ -76,18 +76,10 @@ class _CompactPlayerState extends State<CompactPlayer> {
         ),
         child: Column(
           children: [
-            _CompactProgress(
-              progress: progress.clamp(0.0, 1.0),
-              enabled: player.duration != null && track != null && !confirming,
-              onSeek: (v) {
-                final total = player.duration!.inMilliseconds;
-                player.seek(Duration(milliseconds: (total * v).round()));
-              },
-            ),
             Expanded(
               child: DragToMoveArea(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 4, 8, 8),
+                  padding: const EdgeInsets.fromLTRB(12, 8, 8, 4),
                   child: confirming
                       ? _CompactTrashConfirm(
                           track: track!,
@@ -95,8 +87,6 @@ class _CompactPlayerState extends State<CompactPlayer> {
                               setState(() => _trashConfirm = null),
                           onConfirm: () => _commitTrash(track),
                           onExpand: shell.exitCompactMode,
-                          onHide: shell.hideToTray,
-                          onQuit: shell.quit,
                         )
                       : _CompactPlaybackRow(
                           track: track,
@@ -109,6 +99,14 @@ class _CompactPlayerState extends State<CompactPlayer> {
                         ),
                 ),
               ),
+            ),
+            _CompactProgress(
+              progress: progress.clamp(0.0, 1.0),
+              enabled: player.duration != null && track != null && !confirming,
+              onSeek: (v) {
+                final total = player.duration!.inMilliseconds;
+                player.seek(Duration(milliseconds: (total * v).round()));
+              },
             ),
           ],
         ),
@@ -195,18 +193,8 @@ class _CompactPlaybackRow extends StatelessWidget {
           ),
         _VolumeBtn(player: player),
         _ChipBtn(
-          icon: Icons.remove_rounded,
-          muted: true,
-          onPressed: shell.hideToTray,
-        ),
-        _ChipBtn(
           icon: Icons.open_in_full_rounded,
           onPressed: shell.exitCompactMode,
-        ),
-        _ChipBtn(
-          icon: Icons.close_rounded,
-          muted: true,
-          onPressed: shell.quit,
         ),
       ],
     );
@@ -220,16 +208,12 @@ class _CompactTrashConfirm extends StatelessWidget {
     required this.onCancel,
     required this.onConfirm,
     required this.onExpand,
-    required this.onHide,
-    required this.onQuit,
   });
 
   final Track track;
   final VoidCallback onCancel;
   final VoidCallback onConfirm;
   final VoidCallback onExpand;
-  final VoidCallback onHide;
-  final VoidCallback onQuit;
 
   @override
   Widget build(BuildContext context) {
@@ -285,18 +269,8 @@ class _CompactTrashConfirm extends StatelessWidget {
         ),
         const SizedBox(width: 4),
         _ChipBtn(
-          icon: Icons.remove_rounded,
-          muted: true,
-          onPressed: onHide,
-        ),
-        _ChipBtn(
           icon: Icons.open_in_full_rounded,
           onPressed: onExpand,
-        ),
-        _ChipBtn(
-          icon: Icons.close_rounded,
-          muted: true,
-          onPressed: onQuit,
         ),
       ],
     );
@@ -409,6 +383,11 @@ class _CompactProgressState extends State<_CompactProgress> {
 
   @override
   Widget build(BuildContext context) {
+    final p = widget.progress.clamp(0.0, 1.0);
+    final trackH = _hover ? 3.0 : 2.0;
+    final thumbR = _hover ? 5.5 : 4.0;
+    const hitH = 12.0;
+
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
@@ -416,24 +395,55 @@ class _CompactProgressState extends State<_CompactProgress> {
           ? SystemMouseCursors.click
           : SystemMouseCursors.basic,
       child: SizedBox(
-        height: _hover ? 14 : 10,
+        height: hitH,
+        width: double.infinity,
         child: LayoutBuilder(
           builder: (context, constraints) {
-            return GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTapDown: widget.enabled
-                  ? (d) => _seekAt(d.localPosition, constraints.maxWidth)
-                  : null,
-              onHorizontalDragUpdate: widget.enabled
-                  ? (d) => _seekAt(d.localPosition, constraints.maxWidth)
-                  : null,
-              child: CustomPaint(
-                size: Size(constraints.maxWidth, _hover ? 14 : 10),
-                painter: _BarPainter(
-                  progress: widget.progress,
-                  thick: _hover,
+            final width = constraints.maxWidth;
+            return Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Positioned.fill(
+                  child: ClipRRect(
+                    borderRadius: const BorderRadius.vertical(
+                      bottom: Radius.circular(16),
+                    ),
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTapDown: widget.enabled
+                          ? (d) => _seekAt(d.localPosition, width)
+                          : null,
+                      onHorizontalDragUpdate: widget.enabled
+                          ? (d) => _seekAt(d.localPosition, width)
+                          : null,
+                      child: CustomPaint(
+                        size: Size(width, hitH),
+                        painter: _BarPainter(
+                          progress: p,
+                          trackHeight: trackH,
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
-              ),
+                if (_hover || p > 0)
+                  Positioned(
+                    left: (width * p).clamp(thumbR, width - thumbR) - thumbR,
+                    // Circle sits on the bottom edge and stays inside the
+                    // window. Centering it on the line would cut it in half.
+                    top: hitH - thumbR * 2,
+                    child: IgnorePointer(
+                      child: Container(
+                        width: thumbR * 2,
+                        height: thumbR * 2,
+                        decoration: const BoxDecoration(
+                          color: _kYellow,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             );
           },
         ),
@@ -443,44 +453,44 @@ class _CompactProgressState extends State<_CompactProgress> {
 }
 
 class _BarPainter extends CustomPainter {
-  _BarPainter({required this.progress, required this.thick});
+  _BarPainter({required this.progress, required this.trackHeight});
 
   final double progress;
-  final bool thick;
+  final double trackHeight;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final stroke = thick ? 3.5 : 2.5;
-    final y = size.height / 2;
-    final track = Paint()
-      ..color = Colors.white.withValues(alpha: 0.10)
-      ..strokeWidth = stroke
-      ..strokeCap = StrokeCap.round;
-    canvas.drawLine(Offset(6, y), Offset(size.width - 6, y), track);
-
+    // Line sits on the window's bottom edge. ClipRRect (radius 16) follows
+    // the same corner as the main player's top edge.
+    final top = size.height - trackHeight;
+    canvas.drawRRect(
+      RRect.fromLTRBR(
+        0,
+        top,
+        size.width,
+        size.height,
+        Radius.circular(trackHeight / 2),
+      ),
+      Paint()..color = Colors.white.withValues(alpha: 0.12),
+    );
     if (progress > 0) {
-      final endX = 6 + (size.width - 12) * progress;
-      canvas.drawLine(
-        Offset(6, y),
-        Offset(endX, y),
-        Paint()
-          ..color = _kYellow
-          ..strokeWidth = stroke
-          ..strokeCap = StrokeCap.round,
+      canvas.drawRRect(
+        RRect.fromLTRBR(
+          0,
+          top,
+          size.width * progress,
+          size.height,
+          Radius.circular(trackHeight / 2),
+        ),
+        Paint()..color = _kYellow,
       );
-      if (thick) {
-        canvas.drawCircle(
-          Offset(endX, y),
-          4.5,
-          Paint()..color = _kYellow,
-        );
-      }
     }
   }
 
   @override
   bool shouldRepaint(covariant _BarPainter oldDelegate) =>
-      oldDelegate.progress != progress || oldDelegate.thick != thick;
+      oldDelegate.progress != progress ||
+      oldDelegate.trackHeight != trackHeight;
 }
 
 class _Cover extends StatelessWidget {

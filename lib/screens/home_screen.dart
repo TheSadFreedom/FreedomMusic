@@ -36,10 +36,9 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final library = context.watch<LibraryService>();
-    final player = context.watch<PlayerService>();
+    final playing = context.select<PlayerService, bool>((p) => p.playing);
     final searching = _query.trim().isNotEmpty;
     final results = searching ? library.search(_query) : const <Track>[];
-    final playing = player.playing && player.current != null;
 
     return HomeStage(
       playing: playing,
@@ -75,29 +74,16 @@ class _HomeScreenState extends State<HomeScreen> {
                             constraints: const BoxConstraints(maxWidth: 720),
                             child: _SearchPanel(
                               results: results,
-                              onPlay: (i) =>
-                                  player.playTracks(results, startIndex: i),
+                              onPlay: (i) => context
+                                  .read<PlayerService>()
+                                  .playTracks(results, startIndex: i),
                             ),
                           ),
                         ),
                       )
-                    : KeyedSubtree(
-                        key: const ValueKey('hero'),
-                        child: _CenteredHero(
-                          trackCount: library.tracks.length,
-                          empty: library.isEmpty,
-                          playing: playing,
-                          current: player.current,
-                          onPlay: library.isEmpty
-                              ? null
-                              : () {
-                                  if (player.current != null) {
-                                    player.togglePlayPause();
-                                  } else {
-                                    player.playRandomAll();
-                                  }
-                                },
-                        ),
+                    : const KeyedSubtree(
+                        key: ValueKey('hero'),
+                        child: _LiveHero(),
                       ),
               ),
             ),
@@ -163,6 +149,38 @@ class _TopSearch extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Watches playback on its own so search results are not rebuilt every tick.
+class _LiveHero extends StatelessWidget {
+  const _LiveHero();
+
+  @override
+  Widget build(BuildContext context) {
+    final library = context.watch<LibraryService>();
+    final playing = context.select<PlayerService, bool>(
+      (p) => p.playing && p.current != null,
+    );
+    final current = context.select<PlayerService, Track?>(
+      (p) => p.current,
+    );
+    return _CenteredHero(
+      trackCount: library.tracks.length,
+      empty: library.isEmpty,
+      playing: playing,
+      current: current,
+      onPlay: library.isEmpty
+          ? null
+          : () {
+              final player = context.read<PlayerService>();
+              if (player.current != null) {
+                player.togglePlayPause();
+              } else {
+                player.playRandomAll();
+              }
+            },
     );
   }
 }
@@ -420,22 +438,23 @@ class _SearchPanel extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Expanded(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(20),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-              child: ColoredBox(
-                color: Colors.black.withValues(alpha: 0.28),
-                child: ListView.builder(
-                  itemCount: results.length,
-                  itemBuilder: (context, index) {
-                    final track = results[index];
-                    return TrackTile(
-                      track: track,
-                      onTap: () => onPlay(index),
-                    );
-                  },
-                ),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.28),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: ListView.builder(
+                itemExtent: 64,
+                itemCount: results.length,
+                itemBuilder: (context, index) {
+                  final track = results[index];
+                  return TrackTile(
+                    track: track,
+                    onTap: () => onPlay(index),
+                  );
+                },
               ),
             ),
           ),

@@ -137,6 +137,9 @@ class _ChartScreenState extends State<ChartScreen> {
                     final tracks = rows.map((r) => r.entry.track).toList();
                     return ListView.builder(
                       padding: const EdgeInsets.only(bottom: 16),
+                      // Fixed height lets a fling jump by index instead of
+                      // laying out every row in between on one frame.
+                      itemExtent: 64,
                       itemCount: rows.length,
                       itemBuilder: (context, index) {
                         final row = rows[index];
@@ -162,7 +165,7 @@ class _ChartScreenState extends State<ChartScreen> {
   }
 }
 
-class _ChartTrackRow extends StatefulWidget {
+class _ChartTrackRow extends StatelessWidget {
   const _ChartTrackRow({
     required this.row,
     required this.onPlay,
@@ -173,29 +176,44 @@ class _ChartTrackRow extends StatefulWidget {
   final VoidCallback onPlay;
   final VoidCallback onEdit;
 
-  @override
-  State<_ChartTrackRow> createState() => _ChartTrackRowState();
-}
-
-class _ChartTrackRowState extends State<_ChartTrackRow> {
-  bool _hover = false;
+  static final _rankStyle = GoogleFonts.figtree(
+    color: AppTheme.paperMuted,
+    fontWeight: FontWeight.w600,
+    fontSize: 14,
+  );
+  static final _titleStyle = GoogleFonts.figtree(
+    color: AppTheme.paper,
+    fontWeight: FontWeight.w600,
+    fontSize: 15,
+  );
+  static final _artistStyle = GoogleFonts.figtree(
+    color: AppTheme.paperMuted,
+    fontSize: 13,
+  );
+  static final _playsStyle = GoogleFonts.figtree(
+    color: AppTheme.paperMuted.withValues(alpha: 0.55),
+    fontSize: 11,
+    fontWeight: FontWeight.w500,
+  );
+  static final _durationStyle = GoogleFonts.figtree(
+    color: AppTheme.paperMuted,
+    fontSize: 13,
+    fontWeight: FontWeight.w500,
+  );
 
   @override
   Widget build(BuildContext context) {
-    final track = widget.row.entry.track;
-    final plays = widget.row.entry.playCount;
+    final track = row.entry.track;
+    final plays = row.entry.playCount;
 
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: Material(
-        color: _hover ? Colors.white.withValues(alpha: 0.04) : Colors.transparent,
-        child: InkWell(
-          mouseCursor: SystemMouseCursors.click,
-          onTap: widget.onPlay,
-          onLongPress: widget.onEdit,
-          child: Padding(
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        mouseCursor: SystemMouseCursors.click,
+        hoverColor: Colors.white.withValues(alpha: 0.04),
+        onTap: onPlay,
+        onLongPress: onEdit,
+        child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
               children: [
@@ -205,55 +223,37 @@ class _ChartTrackRowState extends State<_ChartTrackRow> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        '${widget.row.rank}',
-                        style: GoogleFonts.figtree(
-                          color: AppTheme.paperMuted,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                        ),
+                        '${row.rank}',
+                        style: _rankStyle,
                       ),
                       const SizedBox(height: 1),
-                      _DeltaIcon(delta: widget.row.delta),
+                      _DeltaIcon(delta: row.delta),
                     ],
                   ),
                 ),
                 const SizedBox(width: 4),
                 TrackCoverPlay(
                   path: track.coverPath,
-                  onPlay: widget.onPlay,
+                  onPlay: onPlay,
                 ),
                 const SizedBox(width: 14),
                 Expanded(
                   child: TrackMetaLinks(
                     track: track,
-                    titleStyle: GoogleFonts.figtree(
-                      color: AppTheme.paper,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 15,
-                    ),
-                    artistStyle: GoogleFonts.figtree(
-                      color: AppTheme.paperMuted,
-                      fontSize: 13,
-                    ),
+                    titleStyle: _titleStyle,
+                    artistStyle: _artistStyle,
                   ),
                 ),
                 if (plays > 0) ...[
                   const SizedBox(width: 8),
-                  Text(
-                    '$plays',
-                    style: GoogleFonts.figtree(
-                      color: AppTheme.paperMuted.withValues(alpha: 0.55),
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
+                  Text('$plays', style: _playsStyle),
                 ],
                 TrackOverflowMenu(
                   actions: [
                     TrackMenuAction(
                       icon: Icons.edit_outlined,
                       label: 'Метаданные',
-                      onSelected: widget.onEdit,
+                      onSelected: onEdit,
                     ),
                     TrackMenuAction(
                       icon: Icons.queue_music_rounded,
@@ -274,18 +274,13 @@ class _ChartTrackRowState extends State<_ChartTrackRow> {
                   child: Text(
                     formatTrackDuration(track.durationMs),
                     textAlign: TextAlign.right,
-                    style: GoogleFonts.figtree(
-                      color: AppTheme.paperMuted,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                    ),
+                    style: _durationStyle,
                   ),
                 ),
               ],
             ),
           ),
         ),
-      ),
     );
   }
 }
