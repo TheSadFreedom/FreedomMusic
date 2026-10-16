@@ -1,7 +1,7 @@
 name: freedom_music
 description: Local MP3 player for Windows. Metadata is the source of truth.
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.0.1+2
 
 environment:
   sdk: ^3.13.5
