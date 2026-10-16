@@ -207,9 +207,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final scanOnStartup = context.select<SettingsService, bool>(
       (s) => s.scanOnStartup,
     );
-    final autoFill = context.select<SettingsService, bool>(
-      (s) => s.autoFillEmptyMetadata,
-    );
     final crossfade = context.select<SettingsService, int>(
       (s) => s.crossfadeSeconds,
     );
@@ -265,147 +262,85 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   ? null
                                   : settings.setScanOnStartup,
                             ),
-                            const SizedBox(height: 8),
-                            _SettingSwitch(
-                              title: 'Дополнять пустые метаданные',
-                              subtitle:
-                                  'Для новых треков подставляет альбом, год, жанр '
-                                  'и номер из интернета. Название, артист и обложка '
-                                  'не меняются.',
-                              value: autoFill,
-                              onChanged: busy
-                                  ? null
-                                  : settings.setAutoFillEmptyMetadata,
-                            ),
                             const SizedBox(height: 14),
                             _CrossfadeSlider(
                               value: crossfade,
                               onChanged: settings.setCrossfadeSeconds,
                             ),
                             const SizedBox(height: 18),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _PrimaryButton(
-                                    onPressed: busy
-                                        ? null
-                                        : () => library.scanLibrary(),
-                                    icon: scanning
-                                        ? null
-                                        : Icons.folder_open_rounded,
-                                    busy: scanning && !_busyBackup,
-                                    label: scanning
-                                        ? 'Сканирование…'
-                                        : 'Сканировать music',
-                                  ),
-                                ),
-                                if (scanning) ...[
-                                  const SizedBox(width: 10),
-                                  _GhostButton(
-                                    onPressed: library.cancelScan,
-                                    icon: Icons.stop_rounded,
-                                    label: 'Стоп',
-                                  ),
-                                ],
-                              ],
+                            _ActionTile(
+                              icon: Icons.folder_open_rounded,
+                              title: 'Сканировать music',
+                              subtitle:
+                                  'Без парсинга. Ищет новые и изменённые файлы.',
+                              onPressed: busy
+                                  ? null
+                                  : () => library.scanLibrary(),
                             ),
-                            const SizedBox(height: 10),
-                            _GhostButton(
+                            _ActionTile(
+                              icon: Icons.refresh_rounded,
+                              title: 'Сканировать music полностью',
+                              subtitle: 'Без парсинга. Перечитывает все треки.',
                               onPressed: busy
                                   ? null
                                   : () => library.scanLibrary(force: true),
-                              icon: Icons.refresh_rounded,
-                              label: 'Просканировать все треки заново',
-                              expanded: true,
                             ),
-                            const SizedBox(height: 10),
-                            _GhostButton(
+                            _ActionTile(
+                              icon: Icons.travel_explore_rounded,
+                              title: 'Поиск пустых метаданных',
+                              subtitle:
+                                  'Без текста и жанра. Альбом, год, номер, продюсер.',
                               onPressed: busy
                                   ? null
                                   : () => library.fillEmptyMetadata(),
-                              icon: Icons.travel_explore_rounded,
-                              label: 'Поиск пустых метаданных',
-                              expanded: true,
                             ),
-                            const SizedBox(height: 10),
-                            _GhostButton(
+                            _ActionTile(
+                              icon: Icons.lyrics_outlined,
+                              title: 'Поиск текстов для треков',
+                              subtitle: 'Только текст песни.',
+                              onPressed: busy
+                                  ? null
+                                  : () => library.fillMissingLyrics(),
+                            ),
+                            _ActionTile(
+                              icon: Icons.face_retouching_natural_rounded,
+                              title: 'Обновить фотографии артистов',
+                              subtitle: photosBusy
+                                  ? 'Ищем новые фото…'
+                                  : 'Ручные фото не перезаписываются.',
+                              busy: photosBusy,
                               onPressed: busy
                                   ? null
                                   : () => _refreshArtistPhotos(library),
-                              icon: Icons.face_retouching_natural_rounded,
-                              label: photosBusy
-                                  ? 'Обновление фото артистов…'
-                                  : 'Обновить фото артистов',
-                              expanded: true,
                             ),
+                            if (scanning || progress != null) ...[
+                              const SizedBox(height: 4),
+                              _JobProgress(
+                                label: progress == null
+                                    ? 'Подготовка…'
+                                    : '${progress.processed} / ${progress.total}'
+                                        '${progress.currentFile != null ? ' — ${progress.currentFile}' : ''}',
+                                value: progress?.ratio,
+                                onStop: scanning ? library.cancelScan : null,
+                              ),
+                            ],
                             if (photoProgress != null) ...[
-                              const SizedBox(height: 12),
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(999),
-                                child: LinearProgressIndicator(
-                                  value: photoProgress.ratio,
-                                  minHeight: 6,
-                                  backgroundColor:
-                                      AppTheme.paper.withValues(alpha: 0.08),
-                                  color: _kYellow,
-                                ),
-                              ),
                               const SizedBox(height: 8),
-                              Text(
-                                '${photoProgress.done} / ${photoProgress.total}'
-                                '${photoProgress.updated > 0 ? ' · сохранено ${photoProgress.updated}' : ''}'
-                                '${photoProgress.current != null ? ' — ${photoProgress.current}' : ''}',
-                                style: GoogleFonts.figtree(
-                                  color: AppTheme.paperMuted,
-                                  fontSize: 12.5,
-                                ),
+                              _JobProgress(
+                                label:
+                                    '${photoProgress.done} / ${photoProgress.total}'
+                                    '${photoProgress.updated > 0 ? ' · сохранено ${photoProgress.updated}' : ''}'
+                                    '${photoProgress.current != null ? ' — ${photoProgress.current}' : ''}',
+                                value: photoProgress.ratio,
                               ),
+                            ],
+                            if (library.jobLog.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              _JobLog(lines: library.jobLog),
                             ],
                             if (_photosMessage != null) ...[
                               const SizedBox(height: 12),
                               _StatusNote(text: _photosMessage!),
-                            ],
-                            const SizedBox(height: 10),
-                            Text(
-                              'Полный повторный скан перечитает теги из всех файлов. '
-                              'Автодополнение из сети при этом не запускается. '
-                              '«Поиск пустых метаданных» проходит по всей библиотеке '
-                              'и дополняет альбом, год, жанр и номер из интернета '
-                              '(название, артист и обложка не меняются). '
-                              '«Обновить фото артистов» — Яндекс Музыка → '
-                              'Genius → Deezer → TheAudioDB → iTunes → '
-                              'MusicBrainz/Wikidata; вручную выбранные фото '
-                              'не перезаписываются. '
-                              'Прослушивания и плейлисты не сбрасываются.',
-                              style: GoogleFonts.figtree(
-                                color: AppTheme.paperMuted.withValues(
-                                  alpha: 0.9,
-                                ),
-                                fontSize: 12.5,
-                                height: 1.4,
-                              ),
-                            ),
-                            if (progress != null) ...[
-                              const SizedBox(height: 16),
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(999),
-                                child: LinearProgressIndicator(
-                                  value: progress.ratio,
-                                  minHeight: 6,
-                                  backgroundColor: AppTheme.paper
-                                      .withValues(alpha: 0.08),
-                                  color: _kYellow,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                '${progress.processed} / ${progress.total}'
-                                '${progress.currentFile != null ? ' — ${progress.currentFile}' : ''}',
-                                style: GoogleFonts.figtree(
-                                  color: AppTheme.paperMuted,
-                                  fontSize: 12.5,
-                                ),
-                              ),
                             ],
                             if (library.lastScanMessage != null) ...[
                               const SizedBox(height: 14),
@@ -424,42 +359,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            LayoutBuilder(
-                              builder: (context, c) {
-                                final wide = c.maxWidth >= 420;
-                                final exportBtn = _PrimaryButton(
-                                  onPressed: busy
-                                      ? null
-                                      : () => _export(library),
-                                  icon: Icons.upload_rounded,
-                                  busy: false,
-                                  label: 'Экспорт',
-                                );
-                                final importBtn = _GhostButton(
-                                  onPressed: busy
-                                      ? null
-                                      : () => _import(library),
-                                  icon: Icons.download_rounded,
-                                  label: 'Импорт',
-                                  expanded: true,
-                                );
-                                if (!wide) {
-                                  return Column(
-                                    children: [
-                                      exportBtn,
-                                      const SizedBox(height: 10),
-                                      importBtn,
-                                    ],
-                                  );
-                                }
-                                return Row(
-                                  children: [
-                                    Expanded(child: exportBtn),
-                                    const SizedBox(width: 10),
-                                    Expanded(child: importBtn),
-                                  ],
-                                );
-                              },
+                            _ActionTile(
+                              icon: Icons.upload_rounded,
+                              title: 'Экспорт',
+                              subtitle: 'Архив плейлистов, фото и истории.',
+                              onPressed:
+                                  busy ? null : () => _export(library),
+                            ),
+                            _ActionTile(
+                              icon: Icons.download_rounded,
+                              title: 'Импорт',
+                              subtitle: 'Заменит данные приложения из архива.',
+                              onPressed:
+                                  busy ? null : () => _import(library),
                             ),
                             if (_busyBackup) ...[
                               const SizedBox(height: 14),
@@ -488,14 +400,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               const SizedBox(height: 14),
                               _StatusNote(text: _backupMessage!),
                             ],
-                            const SizedBox(height: 14),
-                            _GhostButton(
+                            const SizedBox(height: 4),
+                            _ActionTile(
+                              icon: Icons.restart_alt_rounded,
+                              title: 'Обнулить прослушивания',
+                              subtitle: 'Чарт начнётся с нуля. Плейлисты останутся.',
+                              danger: true,
                               onPressed: busy
                                   ? null
                                   : () => _clearPlayCounts(library),
-                              icon: Icons.restart_alt_rounded,
-                              label: 'Обнулить счётчики прослушиваний',
-                              expanded: true,
                             ),
                           ],
                         ),
@@ -795,96 +708,279 @@ class _SettingSwitch extends StatelessWidget {
   }
 }
 
-class _PrimaryButton extends StatelessWidget {
-  const _PrimaryButton({
+class _ActionTile extends StatelessWidget {
+  const _ActionTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
     required this.onPressed,
-    required this.label,
-    required this.busy,
-    this.icon,
+    this.busy = false,
+    this.danger = false,
   });
 
+  final IconData icon;
+  final String title;
+  final String subtitle;
   final VoidCallback? onPressed;
-  final String label;
   final bool busy;
-  final IconData? icon;
+  final bool danger;
 
   @override
   Widget build(BuildContext context) {
-    return FilledButton(
-      onPressed: onPressed,
-      style: FilledButton.styleFrom(
-        backgroundColor: _kYellow,
-        foregroundColor: AppTheme.ink,
-        disabledBackgroundColor: _kYellow.withValues(alpha: 0.35),
-        disabledForegroundColor: AppTheme.ink.withValues(alpha: 0.55),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
-        textStyle: GoogleFonts.figtree(
-          fontWeight: FontWeight.w800,
-          fontSize: 14,
-        ),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          if (busy)
-            const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: AppTheme.ink,
+    final accent = danger ? const Color(0xFFFF8D7A) : AppTheme.lime;
+    final enabled = onPressed != null || busy;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: MouseRegion(
+        cursor: enabled
+            ? SystemMouseCursors.click
+            : SystemMouseCursors.basic,
+        child: Material(
+          color: AppTheme.ink.withValues(alpha: enabled ? 0.42 : 0.28),
+          borderRadius: BorderRadius.circular(16),
+          child: InkWell(
+            onTap: onPressed,
+            borderRadius: BorderRadius.circular(16),
+            hoverColor: accent.withValues(alpha: 0.06),
+            splashColor: accent.withValues(alpha: 0.12),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: accent.withValues(alpha: enabled ? 0.14 : 0.08),
+                      borderRadius: BorderRadius.circular(13),
+                    ),
+                    child: Icon(
+                      icon,
+                      size: 20,
+                      color: enabled
+                          ? accent
+                          : accent.withValues(alpha: 0.45),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: GoogleFonts.figtree(
+                            color: enabled
+                                ? AppTheme.paper
+                                : AppTheme.paper.withValues(alpha: 0.45),
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14.5,
+                            height: 1.2,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          subtitle,
+                          style: GoogleFonts.figtree(
+                            color: AppTheme.paperMuted.withValues(
+                              alpha: enabled ? 0.95 : 0.45,
+                            ),
+                            fontSize: 12.5,
+                            height: 1.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  if (busy)
+                    SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: accent.withValues(alpha: 0.9),
+                      ),
+                    )
+                  else
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      color: AppTheme.paperMuted.withValues(
+                        alpha: enabled ? 0.7 : 0.3,
+                      ),
+                    ),
+                ],
               ),
-            )
-          else if (icon != null)
-            Icon(icon, size: 18),
-          if (busy || icon != null) const SizedBox(width: 8),
-          Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
-        ],
+            ),
+          ),
+        ),
       ),
     );
   }
 }
 
-class _GhostButton extends StatelessWidget {
-  const _GhostButton({
-    required this.onPressed,
-    required this.icon,
-    required this.label,
-    this.expanded = false,
-  });
+class _JobLog extends StatefulWidget {
+  const _JobLog({required this.lines});
 
-  final VoidCallback? onPressed;
-  final IconData icon;
-  final String label;
-  final bool expanded;
+  final List<String> lines;
+
+  @override
+  State<_JobLog> createState() => _JobLogState();
+}
+
+class _JobLogState extends State<_JobLog> {
+  final _scroll = ScrollController();
+
+  @override
+  void didUpdateWidget(covariant _JobLog oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.lines.length == oldWidget.lines.length) return;
+    final stick = !_scroll.hasClients ||
+        _scroll.position.maxScrollExtent - _scroll.offset < 64;
+    if (!stick) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scroll.hasClients) return;
+      _scroll.jumpTo(_scroll.position.maxScrollExtent);
+    });
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final button = OutlinedButton.icon(
-      onPressed: onPressed,
-      icon: Icon(icon, size: 18),
-      label: Text(label, overflow: TextOverflow.ellipsis),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: AppTheme.paper,
-        disabledForegroundColor: AppTheme.paperMuted.withValues(alpha: 0.5),
-        side: BorderSide(
-          color: AppTheme.paper.withValues(alpha: onPressed == null ? 0.06 : 0.14),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
-        textStyle: GoogleFonts.figtree(
-          fontWeight: FontWeight.w700,
-          fontSize: 13.5,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppTheme.ink.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.paper.withValues(alpha: 0.06)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 8, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Журнал',
+              style: GoogleFonts.figtree(
+                color: AppTheme.paper,
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 220,
+              child: Scrollbar(
+                controller: _scroll,
+                thumbVisibility: true,
+                child: ListView.builder(
+                  controller: _scroll,
+                  itemCount: widget.lines.length,
+                  itemBuilder: (context, index) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 6, right: 8),
+                      child: Text(
+                        widget.lines[index],
+                        style: GoogleFonts.figtree(
+                          color: AppTheme.paperMuted,
+                          fontSize: 12.5,
+                          height: 1.35,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
-    if (expanded) return SizedBox(width: double.infinity, child: button);
-    return button;
+  }
+}
+
+class _JobProgress extends StatelessWidget {
+  const _JobProgress({
+    required this.label,
+    required this.value,
+    this.onStop,
+  });
+
+  final String label;
+  final double? value;
+  final VoidCallback? onStop;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppTheme.ink.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.figtree(
+                      color: AppTheme.paperMuted,
+                      fontSize: 12.5,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
+                if (onStop != null)
+                  MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: TextButton(
+                      onPressed: onStop,
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppTheme.ink,
+                        backgroundColor: _kYellow,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 8,
+                        ),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        textStyle: GoogleFonts.figtree(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
+                      ),
+                      child: const Text('Стоп'),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                value: value,
+                minHeight: 6,
+                backgroundColor: AppTheme.paper.withValues(alpha: 0.08),
+                color: _kYellow,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../data/track_key.dart';
+import 'genius_service.dart';
 
 /// Looks up album / year / genre / track numbers online (iTunes, then Deezer).
 class OnlineMetaHit {
@@ -12,6 +13,8 @@ class OnlineMetaHit {
     this.trackNumber,
     this.trackTotal,
     this.discNumber,
+    this.producer,
+    this.lyrics,
     this.source = '',
   });
 
@@ -21,10 +24,16 @@ class OnlineMetaHit {
   final int? trackNumber;
   final int? trackTotal;
   final int? discNumber;
+  final String? producer;
+  final String? lyrics;
   final String source;
 }
 
 class MetaLookupService {
+  MetaLookupService({GeniusService? genius}) : _genius = genius ?? GeniusService();
+
+  final GeniusService _genius;
+
   static const _ua = 'FreedomMusic/1.0 (local; metadata autofill)';
 
   HttpClient? _client;
@@ -38,21 +47,25 @@ class MetaLookupService {
     _client = null;
   }
 
-  /// True if album/genre/year/track# should be filled from the network.
+  /// True if album/year/track#/producer should be filled from the network.
   static bool needsFill({
     required String album,
-    required String genre,
     int? year,
     int? trackNumber,
     int? trackTotal,
+    String? producer,
   }) {
     return _albumMissing(album) ||
-        _genreMissing(genre) ||
         _yearMissing(year) ||
         trackNumber == null ||
         trackNumber < 1 ||
         trackTotal == null ||
-        trackTotal < 1;
+        trackTotal < 1 ||
+        _producerMissing(producer);
+  }
+
+  static bool _producerMissing(String? producer) {
+    return producer == null || producer.trim().isEmpty;
   }
 
   static bool _albumMissing(String album) {
@@ -61,11 +74,6 @@ class MetaLookupService {
         a == 'unknown' ||
         a == 'мне нравится' ||
         a == 'мне нужен ui';
-  }
-
-  static bool _genreMissing(String genre) {
-    final g = genre.trim().toLowerCase();
-    return g.isEmpty || g == 'unknown';
   }
 
   static bool _yearMissing(int? year) => year == null || year < 1000;
@@ -92,9 +100,29 @@ class MetaLookupService {
     final t = title.trim();
     if (a.isEmpty || t.isEmpty || a.toLowerCase() == 'unknown') return null;
 
+    final genius = await _fromGenius(a, t);
+    if (genius != null) return genius;
     final itunes = await _itunes(a, t);
     if (itunes != null) return itunes;
     return _deezer(a, t);
+  }
+
+  Future<OnlineMetaHit?> _fromGenius(String artist, String title) async {
+    final hit = await _genius.lookup(artist: artist, title: title);
+    if (hit == null) return null;
+    final lyrics = hit.lyrics?.trim();
+    if (!hit.hasMeta && (lyrics == null || lyrics.isEmpty)) return null;
+    return OnlineMetaHit(
+      album: hit.album,
+      year: hit.year,
+      genre: hit.genre,
+      trackNumber: hit.trackNumber,
+      trackTotal: hit.trackTotal,
+      discNumber: hit.discNumber,
+      producer: hit.producer,
+      lyrics: hit.lyrics,
+      source: 'genius',
+    );
   }
 
   String _primaryArtist(String artist) {
@@ -105,7 +133,7 @@ class MetaLookupService {
   String _norm(String s) {
     return s
         .toLowerCase()
-        .replaceAll(RegExp(r'[^\w\s]', unicode: true), ' ')
+        .replaceAll(RegExp(r'[^\p{L}\p{N}\s]', unicode: true), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
   }

@@ -191,6 +191,7 @@ class MetadataWriter {
     final coverMime = cover?.mimetype;
     await Isolate.run(() {
       updateMetadata(File(path), (tag) {
+        final keptPictures = _picturesOf(tag);
         tag.setTitle(title);
         tag.setArtist(artist);
         tag.setAlbum(album);
@@ -218,6 +219,10 @@ class MetadataWriter {
               PictureType.coverFront,
             ),
           ]);
+        } else {
+          // Metadata fill only writes text fields. Put the original pictures
+          // back so the rewrite cannot replace or drop the cover.
+          tag.setPictures(keptPictures);
         }
       });
       // The ID3 writer drops TXXX frames, so the producer is appended after.
@@ -273,6 +278,18 @@ class MetadataWriter {
   }
 }
 
+List<Picture> _picturesOf(Object tag) {
+  return switch (tag) {
+    Mp3Metadata meta => List<Picture>.from(meta.pictures),
+    VorbisMetadata meta => List<Picture>.from(meta.pictures),
+    RiffMetadata meta => List<Picture>.from(meta.pictures),
+    ApeMetadata meta => List<Picture>.from(meta.pictures),
+    Mp4Metadata meta =>
+      meta.picture == null ? <Picture>[] : [meta.picture!],
+    _ => const <Picture>[],
+  };
+}
+
 /// Producer stored as an ID3 `TXXX:PRODUCER` frame or a Vorbis `PRODUCER` tag.
 String? readFileProducer(String path) {
   try {
@@ -291,7 +308,7 @@ String? _producerFromMp3(Mp3Metadata meta) {
   for (final entry in meta.customMetadata.entries) {
     final key = entry.key.trim().toLowerCase();
     if (key == 'producer') {
-      final value = entry.value.trim();
+      final value = entry.value.replaceAll('\u0000', '').trim();
       if (value.isNotEmpty) return value;
     }
     if (key == 'tipl' || key == 'ipls') {
@@ -314,7 +331,7 @@ String? _producerFromInvolved(String raw) {
 
 String? _firstNonEmpty(List<String> values) {
   for (final value in values) {
-    final trimmed = value.trim();
+    final trimmed = value.replaceAll('\u0000', '').trim();
     if (trimmed.isNotEmpty) return trimmed;
   }
   return null;

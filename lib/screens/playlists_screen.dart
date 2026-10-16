@@ -483,7 +483,10 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
       body: FutureBuilder<List<Track>>(
         future: _future,
         builder: (context, snapshot) {
-          final tracks = snapshot.data ?? const <Track>[];
+          final tracks = [
+            for (final t in snapshot.data ?? const <Track>[])
+              library.trackByKey(t.trackKey) ?? t,
+          ];
           final filtered = _query.trim().isEmpty
               ? tracks
               : tracks

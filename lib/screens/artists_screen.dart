@@ -51,7 +51,9 @@ class _ArtistRow {
 }
 
 class ArtistsScreen extends StatefulWidget {
-  const ArtistsScreen({super.key});
+  const ArtistsScreen({super.key, this.producers = false});
+
+  final bool producers;
 
   @override
   State<ArtistsScreen> createState() => _ArtistsScreenState();
@@ -166,7 +168,13 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
   @override
   Widget build(BuildContext context) {
     final library = context.watch<LibraryService>();
-    final artists = library.tracksByArtist();
+    final artists = widget.producers
+        ? library.tracksByProducer()
+        : library.tracksByArtist();
+    final title = widget.producers ? 'Продюсеры' : 'Артисты';
+    final emptyLabel = widget.producers ? 'Нет продюсеров' : 'Нет артистов';
+    final searchHint =
+        widget.producers ? 'Поиск продюсера' : 'Поиск артиста';
 
     if (library.isEmpty) {
       return const Center(
@@ -180,7 +188,7 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         ScreenTitle(
-          title: 'Артисты',
+          title: title,
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -218,7 +226,7 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
             ),
             cursorColor: AppTheme.lime,
             decoration: InputDecoration(
-              hintText: 'Поиск артиста',
+              hintText: searchHint,
               hintStyle: GoogleFonts.figtree(color: AppTheme.paperMuted),
               prefixIcon: const Icon(
                 Icons.search_rounded,
@@ -256,7 +264,7 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
                   ? Center(
                       child: Text(
                         _query.trim().isEmpty
-                            ? 'Нет артистов'
+                            ? emptyLabel
                             : 'Ничего не найдено',
                         style: GoogleFonts.figtree(
                           color: AppTheme.paperMuted,
@@ -286,6 +294,9 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
                               photoPath: photo,
                               tracksLabel: _number.format(row.trackCount),
                               playsLabel: _number.format(row.playCount),
+                              icon: widget.producers
+                                  ? Icons.headphones_rounded
+                                  : Icons.person_rounded,
                               onTap: () async {
                                 await Navigator.of(context).push(
                                   MaterialPageRoute(
@@ -295,6 +306,7 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
                                       playCount: row.playCount,
                                       chartRank: row.rank,
                                       trackPlayCounts: _playCounts,
+                                      byProducer: widget.producers,
                                     ),
                                   ),
                                 );
@@ -318,6 +330,7 @@ class _ArtistGridTile extends StatelessWidget {
     required this.tracksLabel,
     required this.playsLabel,
     required this.onTap,
+    this.icon = Icons.person_rounded,
   });
 
   final _ArtistRow row;
@@ -325,11 +338,12 @@ class _ArtistGridTile extends StatelessWidget {
   final String tracksLabel;
   final String playsLabel;
   final VoidCallback onTap;
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
     Widget avatar = Icon(
-      Icons.person_rounded,
+      icon,
       color: AppTheme.paperMuted.withValues(alpha: 0.7),
       size: 40,
     );
@@ -341,7 +355,7 @@ class _ArtistGridTile extends StatelessWidget {
         width: double.infinity,
         height: double.infinity,
         errorBuilder: (_, _, _) => Icon(
-          Icons.person_rounded,
+          icon,
           color: AppTheme.paperMuted.withValues(alpha: 0.7),
           size: 40,
         ),

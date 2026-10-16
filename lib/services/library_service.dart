@@ -69,6 +69,7 @@ class LibraryService extends ChangeNotifier {
   ScanProgress? _scanProgress;
   String? _lastScanMessage;
   String? _error;
+  final List<String> _jobLog = [];
 
   AppPaths get paths => _paths;
   List<Track> get tracks => _tracks;
@@ -77,6 +78,7 @@ class LibraryService extends ChangeNotifier {
   bool get scanning => _scanning;
   ScanProgress? get scanProgress => _scanProgress;
   String? get lastScanMessage => _lastScanMessage;
+  List<String> get jobLog => List.unmodifiable(_jobLog);
   String? get error => _error;
   bool get isEmpty => _tracks.isEmpty;
 
@@ -237,6 +239,7 @@ class LibraryService extends ChangeNotifier {
     _cancelFill = false;
     _scanProgress = null;
     _lastScanMessage = null;
+    _jobLog.clear();
     notifyListeners();
 
     try {
@@ -248,34 +251,20 @@ class LibraryService extends ChangeNotifier {
         },
       );
 
-      var filled = 0;
-      var fillCancelled = false;
-      // Autofill only for newly added tracks (not on full rescan of thousands).
-      if (!force &&
-          !result.cancelled &&
-          _settings.autoFillEmptyMetadata &&
-          result.addedTracks.isNotEmpty) {
-        final fillResult = await _autoFillTracks(result.addedTracks);
-        filled = fillResult.filled;
-        fillCancelled = fillResult.cancelled;
-      }
-
       await reload();
       final forceLabel = force ? 'Полный перескан. ' : '';
-      if (result.cancelled || fillCancelled) {
+      if (result.cancelled) {
         _lastScanMessage =
             '$forceLabel'
             'Сканирование остановлено. '
             'Успели: новых ${result.added}, обновлено ${result.updated}, '
-            'без изменений ${result.skipped}'
-            '${filled > 0 ? ', дополнено метаданных $filled' : ''}.';
+            'без изменений ${result.skipped}.';
       } else {
         _lastScanMessage =
             '$forceLabel'
             'Файлов: ${result.totalFiles}. '
             'Новых: ${result.added}, обновлено: ${result.updated}, '
-            'без изменений: ${result.skipped}, удалено: ${result.removed}.'
-            '${filled > 0 ? ' Дополнено метаданных: $filled.' : ''}';
+            'без изменений: ${result.skipped}, удалено: ${result.removed}.';
       }
     } catch (e) {
       _error = e.toString();
@@ -288,14 +277,15 @@ class LibraryService extends ChangeNotifier {
     }
   }
 
-  /// Search the whole library for tracks with empty album/genre/year/track №
-  /// and fill them from the network (title, artist, cover unchanged).
+  /// Search the whole library for tracks with empty album/year/track №
+  /// and fill them from the network. Genre and lyrics stay as they are.
   Future<void> fillEmptyMetadata() async {
     if (_scanning) return;
     _scanning = true;
     _cancelFill = false;
     _scanProgress = null;
     _lastScanMessage = null;
+    _jobLog.clear();
     notifyListeners();
 
     try {
@@ -303,18 +293,18 @@ class LibraryService extends ChangeNotifier {
           .where(
             (t) => MetaLookupService.needsFill(
               album: t.album,
-              genre: t.genre,
               year: t.year,
               trackNumber: t.trackNumber,
               trackTotal: t.trackTotal,
+              producer: t.producer,
             ),
           )
           .toList();
 
       if (candidates.isEmpty) {
         _lastScanMessage =
-            'Пустых метаданных не найдено — у всех треков альбом, жанр, год '
-            'и номер уже заполнены.';
+            'Пустых метаданных не найдено — у всех треков альбом, год, '
+            'номер и продюсер уже заполнены.';
         return;
       }
 
@@ -340,7 +330,47 @@ class LibraryService extends ChangeNotifier {
     }
   }
 
-  /// Fills empty album / genre / year from the internet and writes into files.
+  /// Look up lyrics for tracks that have none and write only the lyrics tag.
+  Future<void> fillMissingLyrics() async {
+    if (_scanning) return;
+    _scanning = true;
+    _cancelFill = false;
+    _scanProgress = null;
+    _lastScanMessage = null;
+    _jobLog.clear();
+    notifyListeners();
+
+    try {
+      final candidates =
+          _tracks.where((t) => !hasLyrics(t.lyrics)).toList(growable: false);
+      if (candidates.isEmpty) {
+        _lastScanMessage = 'Текстов для поиска нет — у всех треков текст уже есть.';
+        return;
+      }
+
+      final result = await _fillLyrics(candidates);
+      await reload();
+      if (result.cancelled) {
+        _lastScanMessage =
+            'Поиск текстов остановлен. Записано: ${result.filled} '
+            'из ${candidates.length}.';
+      } else {
+        _lastScanMessage =
+            'Проверено треков без текста: ${candidates.length}. '
+            'Записано: ${result.filled}.';
+      }
+    } catch (e) {
+      _error = e.toString();
+      _lastScanMessage = 'Ошибка поиска текстов: $e';
+    } finally {
+      _scanning = false;
+      _cancelFill = false;
+      _scanProgress = null;
+      notifyListeners();
+    }
+  }
+
+  /// Fills empty album / year / track numbers / producer. Genre is not changed.
   Future<({int filled, bool cancelled})> _autoFillTracks(
     List<Track> candidates,
   ) async {
@@ -361,7 +391,7 @@ class LibraryService extends ChangeNotifier {
         added: filled,
         updated: 0,
         skipped: 0,
-        currentFile: 'Метаданные: ${track.displayTitle}',
+        currentFile: 'Ищем: ${track.displayArtist} — ${track.displayTitle}',
       );
       notifyListeners();
     }
@@ -375,10 +405,10 @@ class LibraryService extends ChangeNotifier {
 
       if (!MetaLookupService.needsFill(
         album: track.album,
-        genre: track.genre,
         year: track.year,
         trackNumber: track.trackNumber,
         trackTotal: track.trackTotal,
+        producer: track.producer,
       )) {
         continue;
       }
@@ -397,21 +427,18 @@ class LibraryService extends ChangeNotifier {
       final needAlbum = track.album.trim().isEmpty ||
           const {'unknown', 'мне нравится', 'мне нужен ui'}
               .contains(track.album.trim().toLowerCase());
-      final needGenre = track.genre.trim().isEmpty ||
-          track.genre.trim().toLowerCase() == 'unknown';
       final needYear = track.year == null || track.year! < 1000;
       final needTrackNo =
           track.trackNumber == null || track.trackNumber! < 1;
       final needTrackTotal =
           track.trackTotal == null || track.trackTotal! < 1;
       final needDisc = track.discNumber == null || track.discNumber! < 1;
+      final needProducer =
+          track.producer == null || track.producer!.trim().isEmpty;
 
       final newAlbum = (needAlbum && hit.album != null && hit.album!.isNotEmpty)
           ? MetaLookupService.cleanAlbum(hit.album!)
           : track.album;
-      final newGenre = (needGenre && hit.genre != null && hit.genre!.isNotEmpty)
-          ? hit.genre!
-          : track.genre;
       final newYear = (needYear && hit.year != null) ? hit.year : track.year;
       final newTrackNo = (needTrackNo && hit.trackNumber != null)
           ? hit.trackNumber
@@ -422,36 +449,189 @@ class LibraryService extends ChangeNotifier {
       final newDisc = (needDisc && hit.discNumber != null)
           ? hit.discNumber
           : track.discNumber;
+      final newProducer = (needProducer &&
+              hit.producer != null &&
+              hit.producer!.trim().isNotEmpty)
+          ? hit.producer!.trim()
+          : track.producer;
 
       if (newAlbum == track.album &&
-          newGenre == track.genre &&
           newYear == track.year &&
           newTrackNo == track.trackNumber &&
           newTrackTotal == track.trackTotal &&
-          newDisc == track.discNumber) {
+          newDisc == track.discNumber &&
+          newProducer == track.producer) {
         continue;
       }
 
       try {
         final draft = MetadataDraft.fromTrack(track)
           ..album = newAlbum
-          ..genre = newGenre
           ..year = newYear
           ..trackNumber = newTrackNo
           ..trackTotal = newTrackTotal
-          ..discNumber = newDisc;
+          ..discNumber = newDisc
+          ..producer = newProducer;
+        final line = _metaLogLine(
+          track,
+          album: newAlbum != track.album ? newAlbum : null,
+          year: newYear != track.year ? newYear : null,
+          trackNumber: (newTrackNo != track.trackNumber ||
+                  newTrackTotal != track.trackTotal)
+              ? newTrackNo
+              : null,
+          trackTotal: (newTrackNo != track.trackNumber ||
+                  newTrackTotal != track.trackTotal)
+              ? newTrackTotal
+              : null,
+          discNumber: newDisc != track.discNumber ? newDisc : null,
+          producer: newProducer != track.producer ? newProducer : null,
+        );
+        _scanProgress = ScanProgress(
+          processed: i + 1,
+          total: total,
+          added: filled + 1,
+          updated: 0,
+          skipped: 0,
+          currentFile: line,
+        );
         // No full-library reload per track — that was blowing RAM to tens of GB.
         await saveTrackMetadata(track, draft, refreshLibrary: false);
+        _pushJobLog(line);
         filled++;
-        if (filled % 25 == 0) {
-          imageCache.clear();
-          imageCache.clearLiveImages();
-        }
+        notifyListeners();
       } catch (e) {
+        final line =
+            '${track.displayArtist} — ${track.displayTitle}: не записалось ($e)';
+        _pushJobLog(line);
         debugPrint('auto-fill failed for ${track.trackKey}: $e');
+        notifyListeners();
       }
     }
     return (filled: filled, cancelled: false);
+  }
+
+  Future<({int filled, bool cancelled})> _fillLyrics(
+    List<Track> candidates,
+  ) async {
+    var filled = 0;
+    final total = candidates.length;
+    var lastUiAt = DateTime.fromMillisecondsSinceEpoch(0);
+    const uiInterval = Duration(milliseconds: 400);
+
+    void publishProgress(int index, Track track) {
+      final now = DateTime.now();
+      if (now.difference(lastUiAt) < uiInterval && index + 1 < total) {
+        return;
+      }
+      lastUiAt = now;
+      _scanProgress = ScanProgress(
+        processed: index + 1,
+        total: total,
+        added: filled,
+        updated: 0,
+        skipped: 0,
+        currentFile: 'Ищем текст: ${track.displayArtist} — ${track.displayTitle}',
+      );
+      notifyListeners();
+    }
+
+    for (var i = 0; i < candidates.length; i++) {
+      if (_cancelFill) {
+        return (filled: filled, cancelled: true);
+      }
+      final track = candidates[i];
+      publishProgress(i, track);
+      if (hasLyrics(track.lyrics)) continue;
+      if (track.title.trim().isEmpty ||
+          track.artist.trim().isEmpty ||
+          track.artist.toLowerCase() == 'unknown') {
+        continue;
+      }
+
+      final text = await _lyrics.fetchForTrack(track);
+      if (text == null || !hasLyrics(text)) continue;
+
+      final line =
+          '${track.displayArtist} — ${track.displayTitle}: текст записан';
+      try {
+        _scanProgress = ScanProgress(
+          processed: i + 1,
+          total: total,
+          added: filled + 1,
+          updated: 0,
+          skipped: 0,
+          currentFile: line,
+        );
+        await saveTrackMetadata(
+          track,
+          MetadataDraft.fromTrack(track)..lyrics = text,
+          refreshLibrary: false,
+        );
+        _pushJobLog(line);
+        filled++;
+        notifyListeners();
+      } catch (e, st) {
+        debugPrint('lyrics tag write ${track.trackKey}: $e\n$st');
+        try {
+          await _db.updateTrackLyrics(track.trackKey, text);
+          final updated = track.copyWith(lyrics: text);
+          final index =
+              _tracks.indexWhere((t) => t.trackKey == track.trackKey);
+          if (index >= 0) _tracks[index] = updated;
+          _pushJobLog(line);
+          filled++;
+          notifyListeners();
+        } catch (e2) {
+          _pushJobLog(
+            '${track.displayArtist} — ${track.displayTitle}: текст не записался ($e2)',
+          );
+          debugPrint('lyrics db write ${track.trackKey}: $e2');
+          notifyListeners();
+        }
+      }
+      if (filled > 0 && filled % 25 == 0) {
+        imageCache.clear();
+        imageCache.clearLiveImages();
+      }
+    }
+    return (filled: filled, cancelled: false);
+  }
+
+  void _pushJobLog(String line) {
+    _jobLog.add(line);
+    if (_jobLog.length > 500) {
+      _jobLog.removeRange(0, _jobLog.length - 500);
+    }
+  }
+
+  String _metaLogLine(
+    Track track, {
+    String? album,
+    int? year,
+    int? trackNumber,
+    int? trackTotal,
+    int? discNumber,
+    String? producer,
+  }) {
+    final parts = <String>[];
+    if (album != null && album.trim().isNotEmpty) {
+      parts.add('альбом «${album.trim()}»');
+    }
+    if (year != null) parts.add('год $year');
+    if (trackNumber != null || trackTotal != null) {
+      final no = trackNumber?.toString() ?? '—';
+      parts.add(
+        trackTotal != null ? 'номер $no из $trackTotal' : 'номер $no',
+      );
+    }
+    if (discNumber != null) parts.add('диск $discNumber');
+    if (producer != null && producer.trim().isNotEmpty) {
+      parts.add('продюсер ${producer.trim()}');
+    }
+    final who = '${track.displayArtist} — ${track.displayTitle}';
+    if (parts.isEmpty) return who;
+    return '$who: ${parts.join(', ')}';
   }
 
   Map<String, List<Track>> tracksByGenre() {
@@ -486,6 +666,27 @@ class LibraryService extends ChangeNotifier {
     return {for (final k in keys) k: map[k]!};
   }
 
+  Map<String, List<Track>> tracksByProducer() {
+    final map = <String, List<Track>>{};
+    final displayName = <String, String>{};
+
+    for (final t in _tracks) {
+      for (final name in producerNames(t.producer)) {
+        final card = artistCardName(name);
+        final lower = card.toLowerCase();
+        final label = displayName.putIfAbsent(lower, () => card);
+        final list = map.putIfAbsent(label, () => []);
+        if (!list.any((existing) => existing.trackKey == t.trackKey)) {
+          list.add(t);
+        }
+      }
+    }
+
+    final keys = map.keys.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return {for (final k in keys) k: map[k]!};
+  }
+
   Future<List<ChartEntry>> chart(ChartPeriod period) {
     return _db.getChart(library: _tracks, period: period);
   }
@@ -505,9 +706,7 @@ class LibraryService extends ChangeNotifier {
   Future<void> addListenMs(String trackKey, int ms) =>
       _db.addListenMs(trackKey, ms);
 
-  /// Writes tags to disk and refreshes the local index.
-  ///
-  /// If the track has no lyrics tag, try LRCLIB and store the result in the DB.
+  /// If the file has no lyrics, look them up and write them into the tag.
   /// Returns the updated track when lyrics were found, otherwise null.
   Future<Track?> ensureRemoteLyrics(Track track) async {
     final key = track.trackKey;
@@ -526,14 +725,28 @@ class LibraryService extends ChangeNotifier {
         _lyricsMisses.add(key);
         return null;
       }
-      await _db.updateTrackLyrics(key, text);
-      final updated = (trackByKey(key) ?? track).copyWith(lyrics: text);
-      final i = _tracks.indexWhere((t) => t.trackKey == key);
-      if (i >= 0) _tracks[i] = updated;
-      _lyricsMisses.remove(key);
-      return updated;
+      final source = trackByKey(key) ?? track;
+      try {
+        final updated = await saveTrackMetadata(
+          source,
+          MetadataDraft.fromTrack(source)..lyrics = text,
+          refreshLibrary: false,
+        );
+        _lyricsMisses.remove(key);
+        return updated;
+      } catch (e, st) {
+        // The file can be locked while it is playing. Keep the text in the
+        // library so the panel still shows it.
+        debugPrint('lyrics tag write $key: $e\n$st');
+        await _db.updateTrackLyrics(key, text);
+        final updated = source.copyWith(lyrics: text);
+        final i = _tracks.indexWhere((t) => t.trackKey == key);
+        if (i >= 0) _tracks[i] = updated;
+        _lyricsMisses.remove(key);
+        return updated;
+      }
     } catch (e, st) {
-      debugPrint('LRCLIB lyrics $key: $e\n$st');
+      debugPrint('lyrics lookup $key: $e\n$st');
       _lyricsMisses.add(key);
       return null;
     } finally {
@@ -578,6 +791,7 @@ class LibraryService extends ChangeNotifier {
       final j = _tracks.indexWhere((t) => t.trackKey == updated.trackKey);
       if (j >= 0) _tracks[j] = updated;
     }
+    notifyListeners();
     return updated;
   }
 

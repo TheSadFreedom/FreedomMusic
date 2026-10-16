@@ -26,8 +26,37 @@ class PlayerService extends ChangeNotifier {
     // cannot restart it. `stop` keeps the source and pauses at the beginning.
     unawaited(_playerA.setReleaseMode(ReleaseMode.stop));
     unawaited(_playerB.setReleaseMode(ReleaseMode.stop));
+    _library.addListener(_pullQueueMetadata);
     _wirePlayer(_playerA, isActive: () => _usingA);
     _wirePlayer(_playerB, isActive: () => !_usingA);
+  }
+
+  /// Queue copies stay stale until the library notifies. Metadata fill
+  /// updates the library track immediately, so mirror that into the queue.
+  void _pullQueueMetadata() {
+    var changed = false;
+    for (var i = 0; i < _queue.length; i++) {
+      final fresh = _library.trackByKey(_queue[i].trackKey);
+      if (fresh == null || !_trackMetaDiffers(_queue[i], fresh)) continue;
+      _queue[i] = fresh;
+      changed = true;
+    }
+    if (changed) notifyListeners();
+  }
+
+  bool _trackMetaDiffers(Track a, Track b) {
+    return a.album != b.album ||
+        a.albumArtist != b.albumArtist ||
+        a.year != b.year ||
+        a.trackNumber != b.trackNumber ||
+        a.trackTotal != b.trackTotal ||
+        a.discNumber != b.discNumber ||
+        a.producer != b.producer ||
+        a.genre != b.genre ||
+        a.lyrics != b.lyrics ||
+        a.title != b.title ||
+        a.artist != b.artist ||
+        a.coverPath != b.coverPath;
   }
 
   void _wirePlayer(AudioPlayer player, {required bool Function() isActive}) {
@@ -787,6 +816,7 @@ class PlayerService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _library.removeListener(_pullQueueMetadata);
     _flushListenMs();
     _stopPositionPoll();
     _persistTimer?.cancel();

@@ -31,7 +31,7 @@ class _AppShellState extends State<AppShell> {
 
   /// Per-tab navigators so detail pages don't cover the mini player.
   final List<GlobalKey<NavigatorState>> _navKeys = List.generate(
-    5,
+    6,
     (_) => GlobalKey<NavigatorState>(),
   );
 
@@ -59,6 +59,11 @@ class _AppShellState extends State<AppShell> {
       label: 'Артисты',
     ),
     _NavItem(
+      icon: Icons.headphones_rounded,
+      selectedIcon: Icons.headphones_rounded,
+      label: 'Продюсеры',
+    ),
+    _NavItem(
       icon: Icons.bar_chart_outlined,
       selectedIcon: Icons.bar_chart,
       label: 'Чарт',
@@ -75,15 +80,16 @@ class _AppShellState extends State<AppShell> {
     ),
   ];
 
-  static const _topCount = 4;
-  static const _settingsIndex = 4;
+  static const _topCount = 5;
+  static const _settingsIndex = 5;
 
   Widget _tabRoot(int index) {
     final page = switch (index) {
       0 => const HomeScreen(),
       1 => const ArtistsScreen(),
-      2 => const ChartScreen(),
-      3 => const PlaylistsScreen(),
+      2 => const ArtistsScreen(producers: true),
+      3 => const ChartScreen(),
+      4 => const PlaylistsScreen(),
       _ => const SettingsScreen(),
     };
 
@@ -94,13 +100,15 @@ class _AppShellState extends State<AppShell> {
           AmbientBackdrop(
             accent: switch (index) {
               1 => const Color(0xFF3D6B8B),
-              2 => const Color(0xFF8B6B3D),
-              3 => const Color(0xFF5A3A6E),
+              2 => const Color(0xFF6B8B3D),
+              3 => const Color(0xFF8B6B3D),
+              4 => const Color(0xFF5A3A6E),
               _ => AppTheme.moss,
             },
             secondary: switch (index) {
-              3 => const Color(0xFF3D2A5C),
-              2 => const Color(0xFF5A3A2A),
+              4 => const Color(0xFF3D2A5C),
+              3 => const Color(0xFF5A3A2A),
+              2 => const Color(0xFF3A4A2A),
               _ => const Color(0xFF2A4A5C),
             },
           ),

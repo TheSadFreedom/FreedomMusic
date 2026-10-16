@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import '../data/track_key.dart';
 import '../models/artist_release.dart';
 import '../models/track.dart';
 import '../services/library_service.dart';
@@ -27,6 +28,7 @@ class ArtistDetailScreen extends StatefulWidget {
     required this.playCount,
     required this.chartRank,
     required this.trackPlayCounts,
+    this.byProducer = false,
   });
 
   final String artist;
@@ -34,34 +36,42 @@ class ArtistDetailScreen extends StatefulWidget {
   final int playCount;
   final int chartRank;
   final Map<String, int> trackPlayCounts;
+  final bool byProducer;
 
   @override
   State<ArtistDetailScreen> createState() => _ArtistDetailScreenState();
 }
 
 class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
-  late final List<Track> _popular;
-  late final List<ArtistRelease> _albums;
-  late final List<ArtistRelease> _singles;
   Map<String, int> _listenMs = const {};
   bool _listenMsLoaded = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _popular = List<Track>.from(widget.tracks)
+  List<Track> _liveTracks(LibraryService library) {
+    final want = widget.artist.toLowerCase();
+    final live = library.tracks
+        .where(
+          (t) => widget.byProducer
+              ? producerNames(t.producer).any(
+                  (name) =>
+                      library.artistCardName(name).toLowerCase() == want,
+                )
+              : t.artists.any(
+                  (name) =>
+                      library.artistCardName(name).toLowerCase() == want,
+                ),
+        )
+        .toList(growable: false);
+    return live.isEmpty ? widget.tracks : live;
+  }
+
+  List<Track> _popularOf(List<Track> tracks) {
+    return List<Track>.from(tracks)
       ..sort((a, b) {
         final ca = widget.trackPlayCounts[a.trackKey] ?? 0;
         final cb = widget.trackPlayCounts[b.trackKey] ?? 0;
         if (cb != ca) return cb.compareTo(ca);
         return a.displayTitle.toLowerCase().compareTo(b.displayTitle.toLowerCase());
       });
-
-    final releases = buildReleases(widget.tracks);
-    _albums = releases.where((r) => r.kind == ReleaseKind.album).toList()
-      ..sort(compareReleasesByYearDesc);
-    _singles = releases.where((r) => r.kind == ReleaseKind.single).toList()
-      ..sort(compareReleasesByYearDesc);
   }
 
   @override
@@ -75,10 +85,10 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
     });
   }
 
-  String? _resolvePhoto(LibraryService library) {
+  String? _resolvePhoto(LibraryService library, List<Track> popular) {
     final custom = library.artistPhotoPath(widget.artist);
     if (custom != null) return custom;
-    for (final t in _popular) {
+    for (final t in popular) {
       final p = t.coverPath;
       if (p != null && File(p).existsSync()) return p;
     }
@@ -236,7 +246,14 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
   Widget build(BuildContext context) {
     final player = context.read<PlayerService>();
     final library = context.watch<LibraryService>();
-    final photoPath = _resolvePhoto(library);
+    final tracks = _liveTracks(library);
+    final popular = _popularOf(tracks);
+    final releases = buildReleases(tracks);
+    final albums = releases.where((r) => r.kind == ReleaseKind.album).toList()
+      ..sort(compareReleasesByYearDesc);
+    final singles = releases.where((r) => r.kind == ReleaseKind.single).toList()
+      ..sort(compareReleasesByYearDesc);
+    final photoPath = _resolvePhoto(library, popular);
 
     return Scaffold(
       backgroundColor: AppTheme.ink,
@@ -258,13 +275,14 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
             artist: widget.artist,
             photoPath: photoPath,
             chartRank: widget.chartRank,
-            trackCount: widget.tracks.length,
-            onListen: () => player.playTracks(_popular, shuffle: false),
-            onShuffle: () => player.playTracks(widget.tracks, shuffle: true),
+            trackCount: tracks.length,
+            onListen: () => player.playTracks(popular, shuffle: false),
+            onShuffle: () => player.playTracks(tracks, shuffle: true),
             onEditPhoto: () => _editPhoto(context),
-            onMerge: () => _mergeArtist(context),
+            onMerge: widget.byProducer ? null : () => _mergeArtist(context),
+            roleLabel: widget.byProducer ? 'Продюсер' : 'Артист',
           )),
-          if (_popular.isNotEmpty) ...[
+          if (popular.isNotEmpty) ...[
             SliverToBoxAdapter(
               child: _SectionTitle(
                 title: 'Популярные треки',
@@ -273,7 +291,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                     MaterialPageRoute<void>(
                       builder: (_) => _ArtistAllTracksScreen(
                         artist: widget.artist,
-                        tracks: _popular,
+                        tracks: popular,
                         trackPlayCounts: widget.trackPlayCounts,
                       ),
                     ),
@@ -284,21 +302,21 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
             SliverList(
               delegate: SliverChildBuilderDelegate(
                 (context, index) {
-                  final track = _popular[index];
+                  final track = popular[index];
                   final plays = widget.trackPlayCounts[track.trackKey] ?? 0;
                   return _PopularTrackRow(
                     index: index + 1,
                     track: track,
                     plays: plays,
                     onTap: () =>
-                        player.playTracks(_popular, startIndex: index),
+                        player.playTracks(popular, startIndex: index),
                   );
                 },
-                childCount: _popular.length.clamp(0, 10),
+                childCount: popular.length.clamp(0, 10),
               ),
             ),
           ],
-          if (_albums.isNotEmpty) ...[
+          if (albums.isNotEmpty) ...[
             const SliverToBoxAdapter(child: SizedBox(height: 12)),
             SliverToBoxAdapter(
               child: _SectionTitle(
@@ -309,7 +327,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                       builder: (_) => _ArtistAllReleasesScreen(
                         artist: widget.artist,
                         sectionTitle: 'Альбомы',
-                        releases: _albums,
+                        releases: albums,
                         listenMsByKey: _listenMs,
                       ),
                     ),
@@ -319,13 +337,13 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
             ),
             SliverToBoxAdapter(
               child: _ReleaseCarousel(
-                releases: _albums,
+                releases: albums,
                 artist: widget.artist,
                 listenMsByKey: _listenMs,
               ),
             ),
           ],
-          if (_singles.isNotEmpty) ...[
+          if (singles.isNotEmpty) ...[
             const SliverToBoxAdapter(child: SizedBox(height: 8)),
             SliverToBoxAdapter(
               child: _SectionTitle(
@@ -336,7 +354,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                       builder: (_) => _ArtistAllReleasesScreen(
                         artist: widget.artist,
                         sectionTitle: 'Синглы',
-                        releases: _singles,
+                        releases: singles,
                         listenMsByKey: _listenMs,
                       ),
                     ),
@@ -346,7 +364,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
             ),
             SliverToBoxAdapter(
               child: _ReleaseCarousel(
-                releases: _singles,
+                releases: singles,
                 artist: widget.artist,
                 listenMsByKey: _listenMs,
               ),
@@ -368,7 +386,8 @@ class _Header extends StatelessWidget {
     required this.onListen,
     required this.onShuffle,
     required this.onEditPhoto,
-    required this.onMerge,
+    this.onMerge,
+    this.roleLabel = 'Артист',
   });
 
   final String artist;
@@ -378,7 +397,8 @@ class _Header extends StatelessWidget {
   final VoidCallback onListen;
   final VoidCallback onShuffle;
   final VoidCallback onEditPhoto;
-  final VoidCallback onMerge;
+  final VoidCallback? onMerge;
+  final String roleLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -395,7 +415,7 @@ class _Header extends StatelessWidget {
           wide ? CrossAxisAlignment.start : CrossAxisAlignment.center,
       children: [
         Text(
-          'Артист',
+          roleLabel,
           style: GoogleFonts.figtree(
             color: AppTheme.paperMuted,
             fontSize: 13,
@@ -436,15 +456,16 @@ class _Header extends StatelessWidget {
           onShuffle: onShuffle,
           center: !wide,
           extra: [
-            IconButton.filled(
-              style: IconButton.styleFrom(
-                backgroundColor: ListenActions.yellow,
-                foregroundColor: Colors.black,
-                padding: EdgeInsets.zero,
+            if (onMerge != null)
+              IconButton.filled(
+                style: IconButton.styleFrom(
+                  backgroundColor: ListenActions.yellow,
+                  foregroundColor: Colors.black,
+                  padding: EdgeInsets.zero,
+                ),
+                onPressed: onMerge,
+                icon: const Icon(Icons.merge_type_rounded, size: 22),
               ),
-              onPressed: onMerge,
-              icon: const Icon(Icons.merge_type_rounded, size: 22),
-            ),
           ],
         ),
       ],

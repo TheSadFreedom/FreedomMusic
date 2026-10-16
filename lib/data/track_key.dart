@@ -24,6 +24,14 @@ List<String> splitArtists(String? raw) {
 /// Canonical artist string for storage / display: "A, B".
 String formatArtists(String? raw) => splitArtists(raw).join(', ');
 
+/// Names in the producer tag. Empty tag is nobody, not "Unknown".
+List<String> producerNames(String? raw) {
+  if (raw == null || raw.trim().isEmpty) return const [];
+  return splitArtists(raw)
+      .where((name) => name.toLowerCase() != 'unknown')
+      .toList(growable: false);
+}
+
 /// Ordered unique artists for track identity (order-independent).
 String normalizeArtistsForKey(String? raw) {
   final parts = splitArtists(raw).map(normalizeTag).toSet().toList()..sort();

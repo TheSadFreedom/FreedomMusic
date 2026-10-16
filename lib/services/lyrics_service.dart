@@ -3,9 +3,14 @@ import 'dart:io';
 
 import '../models/track.dart';
 import '../utils/lyrics_format.dart';
+import 'genius_service.dart';
 
 /// Fetch lyrics from [LRCLIB](https://lrclib.net) when the file has none.
 class LyricsService {
+  LyricsService({GeniusService? genius}) : _genius = genius ?? GeniusService();
+
+  final GeniusService _genius;
+
   static const _ua =
       'FreedomMusic/1.0 (https://github.com/TheSadFreedom/FreedomMusic)';
 
@@ -28,6 +33,9 @@ class LyricsService {
         artist.toLowerCase() == 'unknown') {
       return null;
     }
+
+    final fromGenius = await _genius.lyrics(artist: artist, title: title);
+    if (hasLyrics(fromGenius)) return fromGenius;
 
     final album = track.displayAlbum;
     final albumName =
@@ -158,7 +166,7 @@ class LyricsService {
   String _norm(String s) {
     return s
         .toLowerCase()
-        .replaceAll(RegExp(r'[^\w\s]', unicode: true), ' ')
+        .replaceAll(RegExp(r'[^\p{L}\p{N}\s]', unicode: true), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
   }

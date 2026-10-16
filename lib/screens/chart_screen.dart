@@ -3,8 +3,12 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../data/database.dart';
+import '../data/track_key.dart';
+import '../models/artist_release.dart';
 import '../models/track.dart';
+import '../navigation/library_navigation.dart';
 import '../screens/metadata_editor_screen.dart';
+import '../screens/release_detail_screen.dart';
 import '../services/library_service.dart';
 import '../services/player_service.dart';
 import '../services/settings_service.dart';
@@ -12,9 +16,12 @@ import '../theme/app_theme.dart';
 import '../utils/duration_format.dart';
 import '../utils/playlist_actions.dart';
 import '../utils/trash_actions.dart';
+import '../widgets/pill_segmented.dart';
 import '../widgets/track_cover_play.dart';
 import '../widgets/track_meta_links.dart';
 import '../widgets/track_overflow_menu.dart';
+
+enum _ChartKind { tracks, albums }
 
 enum _RankDelta { up, down, same, newEntry }
 
@@ -30,6 +37,29 @@ class _ChartRow {
   final _RankDelta delta;
 }
 
+class _AlbumChartRow {
+  const _AlbumChartRow({
+    required this.rank,
+    required this.release,
+    required this.artist,
+    required this.listens,
+    required this.delta,
+  });
+
+  final int rank;
+  final ArtistRelease release;
+  final String artist;
+  final int listens;
+  final _RankDelta delta;
+}
+
+class _ChartData {
+  const _ChartData({required this.tracks, required this.albums});
+
+  final List<_ChartRow> tracks;
+  final List<_AlbumChartRow> albums;
+}
+
 class ChartScreen extends StatefulWidget {
   const ChartScreen({super.key});
 
@@ -38,8 +68,9 @@ class ChartScreen extends StatefulWidget {
 }
 
 class _ChartScreenState extends State<ChartScreen> {
-  Future<List<_ChartRow>>? _future;
+  Future<_ChartData>? _future;
   bool _refreshing = false;
+  _ChartKind _kind = _ChartKind.tracks;
 
   @override
   void didChangeDependencies() {
@@ -47,33 +78,130 @@ class _ChartScreenState extends State<ChartScreen> {
     _future ??= _load();
   }
 
-  Future<List<_ChartRow>> _load() async {
+  Future<_ChartData> _load() async {
     final library = context.read<LibraryService>();
     final settings = context.read<SettingsService>();
     final entries = await library.chart(ChartPeriod.allTime);
-    final prev = settings.chartSnapshot(ChartPeriod.allTime.name);
+    final listenMs = await library.listenMsAllTime();
+    final trackRows = _rankTracks(entries, settings.chartSnapshot(ChartPeriod.allTime.name));
+    final albumRows = _rankAlbums(
+      library.tracks,
+      listenMs,
+      settings.chartSnapshot('albums'),
+    );
+    await settings.saveChartSnapshot(ChartPeriod.allTime.name, {
+      for (final row in trackRows) row.entry.track.trackKey: row.rank,
+    });
+    await settings.saveChartSnapshot('albums', {
+      for (final row in albumRows) _albumKey(row.release, row.artist): row.rank,
+    });
+    return _ChartData(tracks: trackRows, albums: albumRows);
+  }
 
+  List<_ChartRow> _rankTracks(List<ChartEntry> entries, Map<String, int> prev) {
     final rows = <_ChartRow>[];
-    final nextSnap = <String, int>{};
     for (var i = 0; i < entries.length; i++) {
       final rank = i + 1;
-      final key = entries[i].track.trackKey;
-      nextSnap[key] = rank;
-      final old = prev[key];
-      final delta = old == null
-          ? (prev.isEmpty ? _RankDelta.same : _RankDelta.newEntry)
-          : old == rank
-              ? _RankDelta.same
-              : old > rank
-                  ? _RankDelta.up
-                  : _RankDelta.down;
-      rows.add(_ChartRow(rank: rank, entry: entries[i], delta: delta));
+      rows.add(_ChartRow(
+        rank: rank,
+        entry: entries[i],
+        delta: _delta(prev, entries[i].track.trackKey, rank),
+      ));
     }
-
-    // Persist current order as baseline for the next visit.
-    await settings.saveChartSnapshot(ChartPeriod.allTime.name, nextSnap);
     return rows;
   }
+
+  List<_AlbumChartRow> _rankAlbums(
+    List<Track> tracks,
+    Map<String, int> listenMs,
+    Map<String, int> prev,
+  ) {
+    final groups = <String, List<Track>>{};
+    final artistLabel = <String, String>{};
+    final albumLabel = <String, String>{};
+    for (final track in tracks) {
+      final album = track.displayAlbum.trim();
+      if (album.isEmpty || album.toLowerCase() == 'unknown') continue;
+      final artist = (track.albumArtist != null &&
+              track.albumArtist!.trim().isNotEmpty)
+          ? track.albumArtist!.trim()
+          : track.displayArtist;
+      final key = '${artist.toLowerCase()}\u0001${album.toLowerCase()}';
+      groups.putIfAbsent(key, () => []).add(track);
+      artistLabel.putIfAbsent(key, () => artist);
+      albumLabel.putIfAbsent(key, () => album);
+    }
+
+    final ranked = <_AlbumChartRow>[];
+    for (final entry in groups.entries) {
+      final list = entry.value;
+      if (list.length <= 1) continue;
+      list.sort((a, b) {
+        final ta = a.trackNumber ?? 9999;
+        final tb = b.trackNumber ?? 9999;
+        if (ta != tb) return ta.compareTo(tb);
+        return a.displayTitle.toLowerCase().compareTo(b.displayTitle.toLowerCase());
+      });
+      final years = list.map((t) => t.year).whereType<int>().toList();
+      String? cover;
+      for (final track in list) {
+        final path = track.coverPath;
+        if (path != null && path.isNotEmpty) {
+          cover = path;
+          break;
+        }
+      }
+      final release = ArtistRelease(
+        title: albumLabel[entry.key]!,
+        tracks: list,
+        kind: ReleaseKind.album,
+        year: years.isEmpty ? null : years.reduce((a, b) => a > b ? a : b),
+        coverPath: cover,
+      );
+      ranked.add(_AlbumChartRow(
+        rank: 0,
+        release: release,
+        artist: artistLabel[entry.key]!,
+        listens: releaseListenCount(release, listenMs),
+        delta: _RankDelta.same,
+      ));
+    }
+    ranked.sort((a, b) {
+      final byListens = b.listens.compareTo(a.listens);
+      if (byListens != 0) return byListens;
+      final byTitle = a.release.title.toLowerCase().compareTo(
+            b.release.title.toLowerCase(),
+          );
+      if (byTitle != 0) return byTitle;
+      return a.artist.toLowerCase().compareTo(b.artist.toLowerCase());
+    });
+    return [
+      for (var i = 0; i < ranked.length; i++)
+        _AlbumChartRow(
+          rank: i + 1,
+          release: ranked[i].release,
+          artist: ranked[i].artist,
+          listens: ranked[i].listens,
+          delta: _delta(
+            prev,
+            _albumKey(ranked[i].release, ranked[i].artist),
+            i + 1,
+          ),
+        ),
+    ];
+  }
+
+  _RankDelta _delta(Map<String, int> prev, String key, int rank) {
+    final old = prev[key];
+    if (old == null) {
+      return prev.isEmpty ? _RankDelta.same : _RankDelta.newEntry;
+    }
+    if (old == rank) return _RankDelta.same;
+    return old > rank ? _RankDelta.up : _RankDelta.down;
+  }
+
+  String _albumKey(ArtistRelease release, String artist) =>
+      '${artist.toLowerCase()}\u0001${release.title.toLowerCase()}';
 
   void _reload() {
     setState(() {
@@ -106,6 +234,14 @@ class _ChartScreenState extends State<ChartScreen> {
                   ),
                 ),
               ),
+              PillSegmented<_ChartKind>(
+                segments: const [
+                  PillSegment(value: _ChartKind.tracks, label: 'Треки'),
+                  PillSegment(value: _ChartKind.albums, label: 'Альбомы'),
+                ],
+                selected: _kind,
+                onChanged: (kind) => setState(() => _kind = kind),
+              ),
               IconButton(
                 onPressed: _refreshing ? null : _reload,
                 icon: _refreshing
@@ -126,14 +262,21 @@ class _ChartScreenState extends State<ChartScreen> {
                     'Нет треков. Сканируйте папку music в Настройках.',
                   ),
                 )
-              : FutureBuilder<List<_ChartRow>>(
-                  key: ValueKey('allTime-${library.tracks.length}'),
+              : FutureBuilder<_ChartData>(
+                  key: ValueKey('chart-${library.tracks.length}'),
                   future: _future,
                   builder: (context, snapshot) {
                     if (snapshot.connectionState != ConnectionState.done) {
                       return const Center(child: CircularProgressIndicator());
                     }
-                    final rows = snapshot.data ?? const <_ChartRow>[];
+                    final data = snapshot.data;
+                    if (data == null) {
+                      return const SizedBox.shrink();
+                    }
+                    if (_kind == _ChartKind.albums) {
+                      return _AlbumChartList(rows: data.albums);
+                    }
+                    final rows = data.tracks;
                     final tracks = rows.map((r) => r.entry.track).toList();
                     return ListView.builder(
                       padding: const EdgeInsets.only(bottom: 16),
@@ -161,6 +304,153 @@ class _ChartScreenState extends State<ChartScreen> {
                 ),
         ),
       ],
+    );
+  }
+}
+
+class _AlbumChartList extends StatelessWidget {
+  const _AlbumChartList({required this.rows});
+
+  final List<_AlbumChartRow> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    if (rows.isEmpty) {
+      return Center(
+        child: Text(
+          'Нет альбомов',
+          style: GoogleFonts.figtree(
+            color: AppTheme.paperMuted,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
+    }
+    final player = context.read<PlayerService>();
+    return ListView.builder(
+      padding: const EdgeInsets.only(bottom: 16),
+      itemExtent: 64,
+      itemCount: rows.length,
+      itemBuilder: (context, index) {
+        final row = rows[index];
+        return _AlbumChartTile(
+          row: row,
+          onPlay: () => player.playTracks(row.release.tracks),
+        );
+      },
+    );
+  }
+}
+
+class _AlbumChartTile extends StatelessWidget {
+  const _AlbumChartTile({required this.row, required this.onPlay});
+
+  final _AlbumChartRow row;
+  final VoidCallback onPlay;
+
+  static final _rankStyle = GoogleFonts.figtree(
+    color: AppTheme.paperMuted,
+    fontWeight: FontWeight.w600,
+    fontSize: 14,
+  );
+  static final _titleStyle = GoogleFonts.figtree(
+    color: AppTheme.paper,
+    fontWeight: FontWeight.w600,
+    fontSize: 15,
+  );
+  static final _artistStyle = GoogleFonts.figtree(
+    color: AppTheme.paperMuted,
+    fontSize: 13,
+  );
+  static final _playsStyle = GoogleFonts.figtree(
+    color: AppTheme.paperMuted.withValues(alpha: 0.55),
+    fontSize: 11,
+    fontWeight: FontWeight.w500,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final artistName = splitArtists(row.artist).first;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        mouseCursor: SystemMouseCursors.click,
+        hoverColor: Colors.white.withValues(alpha: 0.04),
+        onTap: onPlay,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 40,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('${row.rank}', style: _rankStyle),
+                    const SizedBox(height: 1),
+                    _DeltaIcon(delta: row.delta),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 4),
+              TrackCoverPlay(
+                path: row.release.coverPath,
+                onPlay: onPlay,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => ReleaseDetailScreen(
+                                release: row.release,
+                                primaryArtist: artistName,
+                              ),
+                            ),
+                          );
+                        },
+                        child: Text(
+                          row.release.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: _titleStyle,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => openArtistPage(context, artistName),
+                        child: Text(
+                          row.artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: _artistStyle,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (row.listens > 0) ...[
+                const SizedBox(width: 8),
+                Text('${row.listens}', style: _playsStyle),
+              ],
+              const SizedBox(width: 8),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
