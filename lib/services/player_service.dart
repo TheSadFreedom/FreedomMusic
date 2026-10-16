@@ -19,8 +19,13 @@ class PlayerService extends ChangeNotifier {
     if (_volumeBeforeMute <= 0.001) _volumeBeforeMute = 1.0;
     _shuffle = _settings.playbackShuffle;
     _repeat = _repeatFromString(_settings.playbackRepeat);
-    unawaited(_playerA.setVolume(_volume));
-    unawaited(_playerB.setVolume(_volume));
+    final gain = outputGain(_volume);
+    unawaited(_playerA.setVolume(gain));
+    unawaited(_playerB.setVolume(gain));
+    // Default `release` drops the file when a track ends, so seek+resume
+    // cannot restart it. `stop` keeps the source and pauses at the beginning.
+    unawaited(_playerA.setReleaseMode(ReleaseMode.stop));
+    unawaited(_playerB.setReleaseMode(ReleaseMode.stop));
     _wirePlayer(_playerA, isActive: () => _usingA);
     _wirePlayer(_playerB, isActive: () => !_usingA);
   }
@@ -30,8 +35,13 @@ class PlayerService extends ChangeNotifier {
       debugPrint('AudioPlayer stream error: $e');
     }
 
-    player.onPlayerStateChanged.listen((_) {
+    player.onPlayerStateChanged.listen((state) {
       if (!isActive()) return;
+      if (state == PlayerState.playing) {
+        _startPositionPoll();
+      } else if (!_crossfading) {
+        _stopPositionPoll();
+      }
       notifyListeners();
     }, onError: onErr);
     player.onPositionChanged.listen((pos) {
@@ -48,25 +58,110 @@ class PlayerService extends ChangeNotifier {
     }, onError: onErr);
     player.onPlayerComplete.listen((_) {
       if (!isActive()) return;
-      if (_crossfading) return;
+      if (_crossfading || _switchingTrack) return;
       // Seeking to the end often fires "complete" on Windows — ignore briefly.
       final until = _ignoreCompleteUntil;
       if (until != null && DateTime.now().isBefore(until)) return;
+      // Media Foundation sometimes signals EOF while playback continues.
+      // A real ending also seeks back to 0 before this event is handled, so
+      // "position is at the start" is not enough to ignore it — only ignore
+      // when playback never reached the end of the file.
+      final total = _duration;
+      final fresh = DateTime.now().difference(_lastPositionAt) <
+          const Duration(seconds: 2);
+      if (!_heardNearEnd &&
+          fresh &&
+          total != null &&
+          total - _position > const Duration(seconds: 3)) {
+        return;
+      }
       unawaited(_onTrackComplete());
     }, onError: onErr);
   }
 
   void _onPositionTick(Duration pos) {
-    final prev = _position;
     _position = pos;
-    // Only credit real playback (small forward steps). Big jumps = seek.
-    final delta = pos - prev;
-    if (delta > Duration.zero && delta < const Duration(seconds: 2)) {
-      _listened += delta;
-      _pendingListenMs += delta.inMilliseconds;
-      if (_pendingListenMs >= 3000) _flushListenMs();
-      _maybeCountPlay();
+    _lastPositionAt = DateTime.now();
+    // Only credit time past the furthest position already counted.
+    // A backward blip must not be added again on the way back up.
+    if (pos + const Duration(milliseconds: 400) < _listenMark) {
+      final back = _listenMark - pos;
+      if (back > const Duration(seconds: 3)) {
+        _listenMark = pos;
+      }
+      return;
     }
+    final delta = pos - _listenMark;
+    if (delta <= Duration.zero) return;
+    if (delta > const Duration(milliseconds: 3200)) {
+      _listenMark = pos;
+      final total = _duration;
+      if (total != null && total - pos <= const Duration(seconds: 4)) {
+        _heardNearEnd = true;
+      }
+      return;
+    }
+    _listenMark = pos;
+    _listened += delta;
+    _pendingListenMs += delta.inMilliseconds;
+    final total = _duration;
+    if (total != null && total - pos <= const Duration(seconds: 4)) {
+      _heardNearEnd = true;
+    }
+    if (_pendingListenMs >= 3000) _flushListenMs();
+    _maybeCountPlay();
+  }
+
+  void _startPositionPoll() {
+    _positionPoll?.cancel();
+    _positionPoll = Timer.periodic(const Duration(milliseconds: 250), (_) {
+      unawaited(_pollPosition());
+    });
+  }
+
+  void _stopPositionPoll() {
+    _positionPoll?.cancel();
+    _positionPoll = null;
+  }
+
+  Future<void> _pollPosition() async {
+    if (_crossfading) return;
+    if (_primary.state != PlayerState.playing) {
+      if (_primary.state == PlayerState.paused ||
+          _primary.state == PlayerState.stopped) {
+        _stopPositionPoll();
+      }
+      return;
+    }
+    try {
+      final pos = await _primary.getCurrentPosition();
+      if (pos != null) {
+        // Avoid double-counting when the stream already delivered this tick.
+        final skew = (pos - _position).abs();
+        if (skew >= const Duration(milliseconds: 80)) {
+          _onPositionTick(pos);
+          _maybeStartCrossfade();
+          _schedulePersist();
+          notifyListeners();
+        }
+      }
+      if (_duration == null || _duration!.inMilliseconds <= 0) {
+        final d = await _primary.getDuration();
+        if (d != null && d.inMilliseconds > 0) {
+          _duration = d;
+          notifyListeners();
+        }
+      }
+    } catch (e) {
+      debugPrint('Position poll failed: $e');
+    }
+  }
+
+  /// UI volume 0–1 → quieter low end (perception / Windows gain).
+  static double outputGain(double ui) {
+    final v = ui.clamp(0.0, 1.0);
+    if (v <= 0) return 0;
+    return v * v * v; // cubic
   }
 
   void _flushListenMs() {
@@ -81,13 +176,14 @@ class PlayerService extends ChangeNotifier {
     _flushListenMs();
     _playCounted = false;
     _listened = Duration.zero;
+    _listenMark = Duration.zero;
+    _heardNearEnd = false;
   }
 
   Future<void> _onTrackComplete() async {
+    if (_queue.isEmpty || _index < 0) return;
     if (_repeat == PlayRepeatMode.one) {
-      _resetListenAccounting();
-      await seek(Duration.zero);
-      await _primary.resume();
+      await _playIndex(_index);
       return;
     }
     await next();
@@ -102,6 +198,11 @@ class PlayerService extends ChangeNotifier {
 
   bool _usingA = true;
   bool _crossfading = false;
+
+  /// True after playback has reached the last few seconds of the current file.
+  /// Windows seeks to 0 before the complete event arrives, so this is how a
+  /// real ending is told apart from a mid-track false EOF.
+  bool _heardNearEnd = false;
   Timer? _persistTimer;
 
   /// SMTC/audio_service often sends Play on launch; delay native setSource
@@ -117,9 +218,14 @@ class PlayerService extends ChangeNotifier {
   bool _playCounted = false;
   /// Wall-clock listening time (seeks do not add to this).
   Duration _listened = Duration.zero;
+  /// Furthest position already added to [_listened] this play.
+  Duration _listenMark = Duration.zero;
   /// Pending ms to flush into [LibraryService.addListenMs].
   int _pendingListenMs = 0;
   DateTime? _ignoreCompleteUntil;
+  DateTime _lastPositionAt = DateTime.fromMillisecondsSinceEpoch(0);
+  Timer? _positionPoll;
+  bool _switchingTrack = false;
   late double _volume;
   late double _volumeBeforeMute;
 
@@ -292,6 +398,27 @@ class PlayerService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Stop playback and clear the queue so the home hero can start a fresh
+  /// random stream of the whole library.
+  Future<void> stopAndClear() async {
+    await _cancelCrossfade();
+    _stopPositionPoll();
+    _flushListenMs();
+    try {
+      await _primary.stop();
+      await _secondary.stop();
+    } catch (_) {}
+    _queue = [];
+    _index = -1;
+    _position = Duration.zero;
+    _duration = null;
+    _playCounted = false;
+    _listened = Duration.zero;
+    _listenMark = Duration.zero;
+    await _settings.clearPlaybackSession();
+    notifyListeners();
+  }
+
   Future<void> togglePlayPause() async {
     _armEngine();
     if (current == null) {
@@ -307,8 +434,23 @@ class PlayerService extends ChangeNotifier {
 
   void toggleShuffle() {
     _shuffle = !_shuffle;
+    if (_shuffle && _queue.isNotEmpty && _index >= 0) {
+      _reshuffleQueueKeepingCurrent();
+    }
     _schedulePersist();
     notifyListeners();
+  }
+
+  /// Put the current track first, shuffle the rest so «next» is random order.
+  void _reshuffleQueueKeepingCurrent() {
+    if (_index < 0 || _index >= _queue.length) return;
+    final current = _queue[_index];
+    final others = <Track>[
+      ..._queue.sublist(0, _index),
+      ..._queue.sublist(_index + 1),
+    ]..shuffle(_random);
+    _queue = [current, ...others];
+    _index = 0;
   }
 
   void cycleRepeat() {
@@ -367,6 +509,10 @@ class PlayerService extends ChangeNotifier {
     // Suppress false EOF from Media Foundation when scrubbing to the end.
     _ignoreCompleteUntil =
         DateTime.now().add(const Duration(milliseconds: 800));
+    final total = _duration;
+    _heardNearEnd = total != null &&
+        total > position &&
+        total - position <= const Duration(seconds: 4);
     await _primary.seek(position);
     _position = position;
     _schedulePersist();
@@ -387,8 +533,9 @@ class PlayerService extends ChangeNotifier {
   Future<void> setVolume(double value) async {
     _volume = value.clamp(0.0, 1.0);
     if (_volume > 0.001) _volumeBeforeMute = _volume;
+    final gain = outputGain(_volume);
     if (!_crossfading) {
-      await _primary.setVolume(_volume);
+      await _primary.setVolume(gain);
     }
     await _settings.setPlayerVolume(
       _volume,
@@ -491,6 +638,7 @@ class PlayerService extends ChangeNotifier {
     }
 
     await _cancelCrossfade();
+    _switchingTrack = true;
     _index = index;
     _resetListenAccounting();
     _position = Duration.zero;
@@ -500,21 +648,36 @@ class PlayerService extends ChangeNotifier {
     try {
       await _secondary.stop();
       await _primary.stop();
-      await _primary.setVolume(_volume);
+      await _primary.setVolume(outputGain(_volume));
       await _primary.play(await _sourceFor(path));
+      _startPositionPoll();
+      // Duration/position streams are flaky on Windows — seed immediately.
+      unawaited(_pollPosition());
       if (!autoplay) {
         await _primary.pause();
+        _stopPositionPoll();
       }
     } catch (e) {
       debugPrint('Failed to play $path: $e');
       // Only skip ahead while actively playing — never walk the whole queue
       // during session restore (that left a blank window for minutes).
       if (autoplay && index + 1 < _queue.length) {
+        _switchingTrack = false;
         await _playIndex(index + 1, autoplay: true);
+        return;
       }
+    } finally {
+      _switchingTrack = false;
     }
+    _maybeFetchLyrics(track);
     _schedulePersist();
     notifyListeners();
+  }
+
+  void _maybeFetchLyrics(Track track) {
+    unawaited(_library.ensureRemoteLyrics(track).then((updated) {
+      if (updated != null) syncTrack(updated);
+    }));
   }
 
   void _maybeStartCrossfade() {
@@ -530,8 +693,12 @@ class PlayerService extends ChangeNotifier {
     final remaining = total - _position;
     final fade = Duration(seconds: fadeSec);
     if (remaining > fade || remaining.inMilliseconds < 80) return;
-    if (_index + 1 >= _queue.length) return;
-    unawaited(_runCrossfade(_index + 1, remaining));
+    var nextIndex = _index + 1;
+    if (nextIndex >= _queue.length) {
+      if (_repeat != PlayRepeatMode.all || _queue.length < 2) return;
+      nextIndex = 0;
+    }
+    unawaited(_runCrossfade(nextIndex, remaining));
   }
 
   Future<void> _runCrossfade(int nextIndex, Duration remaining) async {
@@ -552,24 +719,28 @@ class PlayerService extends ChangeNotifier {
       await incoming.setVolume(0);
       await incoming.play(await _sourceFor(path));
 
+      final gain = outputGain(_volume);
       final steps = max(8, fadeMs ~/ 40);
       final stepMs = max(1, fadeMs ~/ steps);
       for (var i = 1; i <= steps; i++) {
         if (!_crossfading) return;
         final t = i / steps;
-        await outgoing.setVolume(_volume * (1 - t));
-        await incoming.setVolume(_volume * t);
+        await outgoing.setVolume(gain * (1 - t));
+        await incoming.setVolume(gain * t);
         await Future<void>.delayed(Duration(milliseconds: stepMs));
       }
       if (!_crossfading) return;
 
       await outgoing.stop();
-      await outgoing.setVolume(_volume);
+      await outgoing.setVolume(gain);
       _usingA = !_usingA;
       _index = nextIndex;
       _resetListenAccounting();
       _position = Duration.zero;
       _duration = null;
+      _startPositionPoll();
+      unawaited(_pollPosition());
+      _maybeFetchLyrics(_queue[nextIndex]);
       _schedulePersist();
     } catch (e) {
       debugPrint('Crossfade failed: $e');
@@ -586,8 +757,9 @@ class PlayerService extends ChangeNotifier {
     _crossfading = false;
     try {
       await _secondary.stop();
-      await _secondary.setVolume(_volume);
-      await _primary.setVolume(_volume);
+      final gain = outputGain(_volume);
+      await _secondary.setVolume(gain);
+      await _primary.setVolume(gain);
     } catch (_) {}
   }
 
@@ -616,6 +788,7 @@ class PlayerService extends ChangeNotifier {
   @override
   void dispose() {
     _flushListenMs();
+    _stopPositionPoll();
     _persistTimer?.cancel();
     unawaited(persistSession());
     unawaited(_playerA.dispose());
