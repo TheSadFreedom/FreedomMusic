@@ -5,77 +5,47 @@ import 'package:provider/provider.dart';
 import '../models/track.dart';
 import '../services/library_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_bottom_sheet.dart';
+
+const _kYellow = Color(0xFFFFDB4D);
 
 /// Pick a user playlist (or create one) and add [track] to it.
 Future<void> addTrackToPlaylist(BuildContext context, Track track) async {
   final library = context.read<LibraryService>();
   final lists = library.playlists.where((p) => !p.isSystem).toList();
 
-  final choice = await showModalBottomSheet<Object>(
+  final choice = await showAppBottomSheet<Object>(
     context: context,
-    backgroundColor: AppTheme.inkLift,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-    ),
-    builder: (ctx) => SafeArea(
-      child: ListView(
-        shrinkWrap: true,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Text(
-              'В плейлист',
-              style: GoogleFonts.syne(
-                color: AppTheme.paper,
-                fontWeight: FontWeight.w700,
-                fontSize: 18,
-              ),
-            ),
-          ),
-          ListTile(
-            leading: const Icon(Icons.add_rounded, color: Color(0xFFFFDB4D)),
-            title: Text(
-              'Новый плейлист',
-              style: GoogleFonts.figtree(
-                color: AppTheme.paper,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            onTap: () => Navigator.pop(ctx, 'new'),
-          ),
-          if (lists.isEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              child: Text(
-                'Своих плейлистов пока нет',
-                style: GoogleFonts.figtree(color: AppTheme.paperMuted),
-              ),
-            ),
-          for (final pl in lists)
-            ListTile(
-              leading: const Icon(
-                Icons.queue_music_rounded,
-                color: AppTheme.paperMuted,
-              ),
-              title: Text(
-                pl.name,
-                style: GoogleFonts.figtree(
-                  color: AppTheme.paper,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              subtitle: Text(
-                '${pl.trackCount} треков',
-                style: GoogleFonts.figtree(
-                  color: AppTheme.paperMuted,
-                  fontSize: 12,
-                ),
-              ),
-              onTap: () => Navigator.pop(ctx, pl.id),
-            ),
-        ],
+    title: 'В плейлист',
+    scrollControlled: true,
+    buildChildren: (sheetCtx) => [
+      SheetRow(
+        title: 'Новый плейлист',
+        subtitle: 'Создать и добавить трек',
+        leadingIcon: Icons.add_rounded,
+        leadingAccent: true,
+        onTap: () => Navigator.pop(sheetCtx, 'new'),
       ),
-    ),
+      if (lists.isEmpty)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          child: Text(
+            'Своих плейлистов пока нет',
+            style: GoogleFonts.figtree(
+              color: AppTheme.paperMuted,
+              fontSize: 13,
+            ),
+          ),
+        )
+      else
+        for (final pl in lists)
+          SheetRow(
+            title: pl.name,
+            subtitle: _tracksLabel(pl.trackCount),
+            leadingIcon: Icons.queue_music_rounded,
+            onTap: () => Navigator.pop(sheetCtx, pl.id),
+          ),
+    ],
   );
   if (choice == null || !context.mounted) return;
 
@@ -107,12 +77,24 @@ Future<void> addTrackToPlaylist(BuildContext context, Track track) async {
   );
 }
 
+String _tracksLabel(int count) {
+  final mod10 = count % 10;
+  final mod100 = count % 100;
+  if (mod10 == 1 && mod100 != 11) return '$count трек';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return '$count трека';
+  }
+  return '$count треков';
+}
+
 Future<String?> _askPlaylistName(BuildContext context) async {
   final controller = TextEditingController();
   final name = await showDialog<String>(
     context: context,
+    barrierColor: Colors.black.withValues(alpha: 0.62),
     builder: (ctx) => AlertDialog(
-      backgroundColor: AppTheme.inkLift,
+      backgroundColor: const Color(0xFF1A2220),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       title: Text(
         'Новый плейлист',
         style: GoogleFonts.syne(
@@ -124,9 +106,16 @@ Future<String?> _askPlaylistName(BuildContext context) async {
         controller: controller,
         autofocus: true,
         style: GoogleFonts.figtree(color: AppTheme.paper),
+        cursorColor: _kYellow,
         decoration: InputDecoration(
           hintText: 'Название',
           hintStyle: GoogleFonts.figtree(color: AppTheme.paperMuted),
+          filled: true,
+          fillColor: AppTheme.ink.withValues(alpha: 0.55),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
         ),
         onSubmitted: (v) => Navigator.pop(ctx, v),
       ),
@@ -143,7 +132,7 @@ Future<String?> _askPlaylistName(BuildContext context) async {
           child: Text(
             'Создать',
             style: GoogleFonts.figtree(
-              color: const Color(0xFFFFDB4D),
+              color: _kYellow,
               fontWeight: FontWeight.w800,
             ),
           ),

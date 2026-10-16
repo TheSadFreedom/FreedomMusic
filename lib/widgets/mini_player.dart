@@ -722,10 +722,8 @@ class _CenterControls extends StatelessWidget {
           onPressed: player.next,
         ),
         _IconBtn(
-          icon: switch (player.repeat) {
-            PlayRepeatMode.one => Icons.repeat_one,
-            _ => Icons.repeat,
-          },
+          icon: Icons.repeat,
+          mark: _RepeatMark(one: player.repeat == PlayRepeatMode.one),
           active: player.repeat != PlayRepeatMode.off,
           tooltip: switch (player.repeat) {
             PlayRepeatMode.off => 'Повтор выкл.',
@@ -869,6 +867,7 @@ class _IconBtn extends StatelessWidget {
   const _IconBtn({
     required this.icon,
     required this.tooltip,
+    this.mark,
     this.onPressed,
     this.active = false,
     this.enabled = true,
@@ -877,6 +876,7 @@ class _IconBtn extends StatelessWidget {
 
   final IconData icon;
   final String tooltip;
+  final Widget? mark;
   final VoidCallback? onPressed;
   final bool active;
   final bool enabled;
@@ -895,9 +895,108 @@ class _IconBtn extends StatelessWidget {
       visualDensity: VisualDensity.compact,
       padding: const EdgeInsets.all(8),
       constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-      icon: Icon(icon, size: size, color: color),
+      icon: mark == null
+          ? Icon(icon, size: size, color: color)
+          : IconTheme(
+              data: IconThemeData(color: color, size: size),
+              child: mark!,
+            ),
     );
   }
+}
+
+/// Drawn repeat glyph. The Material `repeat` codepoint is stripped from the
+/// Windows icon font, so the button otherwise shows an empty circle.
+class _RepeatMark extends StatelessWidget {
+  const _RepeatMark({required this.one});
+
+  final bool one;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = IconTheme.of(context);
+    final size = theme.size ?? 22;
+    final color = theme.color ?? _kIcon;
+    return CustomPaint(
+      size: Size.square(size),
+      painter: _RepeatMarkPainter(color: color, one: one),
+    );
+  }
+}
+
+class _RepeatMarkPainter extends CustomPainter {
+  const _RepeatMarkPainter({required this.color, required this.one});
+
+  final Color color;
+  final bool one;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = size.width;
+    final stroke = s * 0.085;
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    final left = s * 0.16;
+    final right = s * 0.84;
+    final top = s * 0.24;
+    final bottom = s * 0.76;
+    final radius = (bottom - top) / 2;
+
+    final loop = Path()
+      ..moveTo(left + radius * 0.15, top)
+      ..lineTo(right - radius, top)
+      ..arcToPoint(
+        Offset(right - radius, bottom),
+        radius: Radius.circular(radius),
+        clockwise: true,
+      )
+      ..lineTo(left + radius, bottom)
+      ..arcToPoint(
+        Offset(left + radius, top),
+        radius: Radius.circular(radius),
+        clockwise: true,
+      );
+    canvas.drawPath(loop, paint);
+
+    _arrow(canvas, paint, Offset(right - s * 0.06, top), s * 0.16, true);
+    _arrow(canvas, paint, Offset(left + s * 0.06, bottom), s * 0.16, false);
+
+    if (!one) return;
+    final tp = TextPainter(
+      text: TextSpan(
+        text: '1',
+        style: TextStyle(
+          color: color,
+          fontSize: s * 0.38,
+          fontWeight: FontWeight.w700,
+          height: 1,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(
+      canvas,
+      Offset((s - tp.width) / 2, (s - tp.height) / 2 + s * 0.02),
+    );
+  }
+
+  void _arrow(Canvas canvas, Paint paint, Offset tip, double w, bool right) {
+    final dir = right ? 1.0 : -1.0;
+    final path = Path()
+      ..moveTo(tip.dx - dir * w, tip.dy - w * 0.55)
+      ..lineTo(tip.dx, tip.dy)
+      ..lineTo(tip.dx - dir * w, tip.dy + w * 0.55);
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _RepeatMarkPainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.one != one;
 }
 
 class _YandexVolumeCapsule extends StatelessWidget {

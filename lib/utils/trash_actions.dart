@@ -223,21 +223,25 @@ class _DialogButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: background,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: onPressed,
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: Material(
+        color: background,
         borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.figtree(
-              color: foreground,
-              fontWeight: FontWeight.w800,
-              fontSize: 14,
+        child: InkWell(
+          onTap: onPressed,
+          mouseCursor: SystemMouseCursors.click,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.figtree(
+                color: foreground,
+                fontWeight: FontWeight.w800,
+                fontSize: 14,
+              ),
             ),
           ),
         ),

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../models/artist_release.dart';
@@ -7,7 +6,7 @@ import '../models/track.dart';
 import '../screens/artist_detail_screen.dart';
 import '../screens/release_detail_screen.dart';
 import '../services/library_service.dart';
-import '../theme/app_theme.dart';
+import '../widgets/app_bottom_sheet.dart';
 
 Future<void> openAlbumForTrack(BuildContext context, Track track) async {
   final library = context.read<LibraryService>();
@@ -45,45 +44,52 @@ Future<void> openArtistFromTrack(BuildContext context, Track track) async {
   if (artists.length == 1) {
     chosen = artists.first;
   } else {
-    chosen = await showModalBottomSheet<String>(
+    final library = context.read<LibraryService>();
+    final byArtist = library.tracksByArtist();
+    chosen = await showAppBottomSheet<String>(
       context: context,
-      backgroundColor: AppTheme.inkLift,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (context) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: Text(
-                  'Выберите артиста',
-                  style: GoogleFonts.syne(
-                    color: AppTheme.paper,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 16,
-                  ),
-                ),
-              ),
-              for (final name in artists)
-                ListTile(
-                  title: Text(
-                    name,
-                    style: GoogleFonts.figtree(color: AppTheme.paper),
-                  ),
-                  onTap: () => Navigator.pop(context, name),
-                ),
-              const SizedBox(height: 8),
-            ],
+      title: 'Выберите артиста',
+      buildChildren: (sheetCtx) => [
+        for (final name in artists)
+          SheetRow(
+            title: name,
+            subtitle: _artistTracksSubtitle(library, byArtist, name),
+            leading: SheetArtistAvatar(
+              photoPath: library.artistPhotoPath(library.artistCardName(name)),
+            ),
+            onTap: () => Navigator.pop(sheetCtx, name),
           ),
-        );
-      },
+      ],
     );
   }
   if (chosen == null || !context.mounted) return;
   await openArtistPage(context, chosen);
+}
+
+String? _artistTracksSubtitle(
+  LibraryService library,
+  Map<String, List<Track>> byArtist,
+  String name,
+) {
+  final card = library.artistCardName(name);
+  List<Track>? tracks = byArtist[card];
+  if (tracks == null) {
+    for (final e in byArtist.entries) {
+      if (e.key.toLowerCase() == card.toLowerCase()) {
+        tracks = e.value;
+        break;
+      }
+    }
+  }
+  if (tracks == null || tracks.isEmpty) return null;
+  final n = tracks.length;
+  final mod10 = n % 10;
+  final mod100 = n % 100;
+  if (mod10 == 1 && mod100 != 11) return '$n трек в библиотеке';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return '$n трека в библиотеке';
+  }
+  return '$n треков в библиотеке';
 }
 
 Future<void> openArtistPage(BuildContext context, String artistName) async {
