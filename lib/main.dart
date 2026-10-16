@@ -14,6 +14,7 @@ import 'services/library_service.dart';
 import 'services/player_service.dart';
 import 'services/settings_service.dart';
 import 'theme/app_theme.dart';
+import 'widgets/startup_splash.dart';
 
 bool get _isDesktop =>
     Platform.isWindows || Platform.isLinux || Platform.isMacOS;
@@ -56,40 +57,103 @@ Future<void> main() async {
     });
   }
 
-  final settings = await SettingsService.create();
-  final paths = await AppPaths.resolve();
-  final db = await AppDatabase.open(paths);
-  final library = LibraryService(paths: paths, db: db, settings: settings);
-  final player = PlayerService(library, settings);
-
-  await library.init();
-  await player.restoreSession();
-  await initAudioHandler(player);
-
-  DesktopShell? desktopShell;
-  if (_isDesktop) {
-    desktopShell = DesktopShell(player);
-    await desktopShell.init();
-  }
-
-  runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider.value(value: settings),
-        ChangeNotifierProvider.value(value: library),
-        ChangeNotifierProvider.value(value: player),
-        if (desktopShell != null)
-          ChangeNotifierProvider.value(value: desktopShell),
-      ],
-      child: const FreedomMusicApp(),
-    ),
-  );
+  runApp(const _BootApp());
 
   if (_isDesktop) {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await windowManager.show();
       await windowManager.focus();
     });
+  }
+}
+
+class _BootApp extends StatefulWidget {
+  const _BootApp();
+
+  @override
+  State<_BootApp> createState() => _BootAppState();
+}
+
+class _Ready {
+  const _Ready({
+    required this.settings,
+    required this.library,
+    required this.player,
+    this.desktopShell,
+  });
+
+  final SettingsService settings;
+  final LibraryService library;
+  final PlayerService player;
+  final DesktopShell? desktopShell;
+}
+
+class _BootAppState extends State<_BootApp> {
+  _Ready? _ready;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  Future<void> _load() async {
+    // Let the splash paint before SQLite, the scanner and Media Foundation.
+    await Future<void>.delayed(Duration.zero);
+    try {
+      final settings = await SettingsService.create();
+      final paths = await AppPaths.resolve();
+      final db = await AppDatabase.open(paths);
+      final library = LibraryService(paths: paths, db: db, settings: settings);
+      final player = PlayerService(library, settings);
+      await library.init();
+      await player.restoreSession();
+      await initAudioHandler(player);
+      DesktopShell? desktopShell;
+      if (_isDesktop) {
+        desktopShell = DesktopShell(player);
+        await desktopShell.init();
+      }
+      if (!mounted) return;
+      setState(() {
+        _ready = _Ready(
+          settings: settings,
+          library: library,
+          player: player,
+          desktopShell: desktopShell,
+        );
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ready = _ready;
+    if (ready == null) {
+      return MaterialApp(
+        title: 'Freedom Music',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          brightness: Brightness.dark,
+          scaffoldBackgroundColor: AppTheme.ink,
+        ),
+        home: StartupSplash(error: _error),
+      );
+    }
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: ready.settings),
+        ChangeNotifierProvider.value(value: ready.library),
+        ChangeNotifierProvider.value(value: ready.player),
+        if (ready.desktopShell != null)
+          ChangeNotifierProvider.value(value: ready.desktopShell),
+      ],
+      child: const FreedomMusicApp(),
+    );
   }
 }
 
