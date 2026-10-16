@@ -6,18 +6,35 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../models/track.dart';
 import '../services/desktop_shell.dart';
+import '../services/library_service.dart';
 import '../services/player_service.dart';
 import '../theme/app_theme.dart';
-import '../utils/trash_actions.dart';
 
 const _kYellow = Color(0xFFFFDB4D);
 const _kIcon = Color(0xFFD4D0C8);
 const _kIconDim = Color(0xFF8A857C);
 
 /// Always-on-top floating bar: track + transport + volume + unpin.
-class CompactPlayer extends StatelessWidget {
+class CompactPlayer extends StatefulWidget {
   const CompactPlayer({super.key});
+
+  @override
+  State<CompactPlayer> createState() => _CompactPlayerState();
+}
+
+class _CompactPlayerState extends State<CompactPlayer> {
+  /// When set, the bar shows an inline trash confirmation (dialogs clip here).
+  Track? _trashConfirm;
+
+  Future<void> _commitTrash(Track track) async {
+    final library = context.read<LibraryService>();
+    final player = context.read<PlayerService>();
+    await library.moveToTrash(track.trackKey);
+    await player.removeTrackFromQueue(track.trackKey);
+    if (mounted) setState(() => _trashConfirm = null);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,10 +42,22 @@ class CompactPlayer extends StatelessWidget {
     final shell = context.watch<DesktopShell>();
     final track = player.current;
 
+    // Drop confirm if the track changed or disappeared.
+    if (_trashConfirm != null &&
+        (track == null || track.trackKey != _trashConfirm!.trackKey)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _trashConfirm = null);
+      });
+    }
+
     final progress = player.duration == null ||
             player.duration!.inMilliseconds == 0
         ? 0.0
         : player.position.inMilliseconds / player.duration!.inMilliseconds;
+
+    final confirming = _trashConfirm != null &&
+        track != null &&
+        track.trackKey == _trashConfirm!.trackKey;
 
     return Material(
       color: Colors.transparent,
@@ -49,7 +78,7 @@ class CompactPlayer extends StatelessWidget {
           children: [
             _CompactProgress(
               progress: progress.clamp(0.0, 1.0),
-              enabled: player.duration != null && track != null,
+              enabled: player.duration != null && track != null && !confirming,
               onSeek: (v) {
                 final total = player.duration!.inMilliseconds;
                 player.seek(Duration(milliseconds: (total * v).round()));
@@ -59,89 +88,254 @@ class CompactPlayer extends StatelessWidget {
               child: DragToMoveArea(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(12, 4, 8, 8),
-                  child: Row(
-                    children: [
-                      _Cover(path: track?.coverPath),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: track == null
-                            ? Text(
-                                'Нет трека',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: GoogleFonts.figtree(
-                                  color: _kIconDim,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              )
-                            : Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    track.displayTitle,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: GoogleFonts.syne(
-                                      color: AppTheme.paper,
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 14,
-                                      height: 1.1,
-                                      letterSpacing: -0.2,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 3),
-                                  Text(
-                                    track.displayArtist,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: GoogleFonts.figtree(
-                                      color: AppTheme.mossBright
-                                          .withValues(alpha: 0.85),
-                                      fontSize: 11.5,
-                                      fontWeight: FontWeight.w500,
-                                      height: 1.1,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                      ),
-                      const SizedBox(width: 8),
-                      _TransportCluster(
-                        playing: player.playing,
-                        onPrev: player.previous,
-                        onPlay: player.togglePlayPause,
-                        onNext: player.next,
-                      ),
-                      const SizedBox(width: 4),
-                      if (track != null)
-                        _ChipBtn(
-                          icon: Icons.delete_outline_rounded,
-                          muted: true,
-                          onPressed: () => moveTrackToTrash(context, track),
+                  child: confirming
+                      ? _CompactTrashConfirm(
+                          track: track!,
+                          onCancel: () =>
+                              setState(() => _trashConfirm = null),
+                          onConfirm: () => _commitTrash(track),
+                          onExpand: shell.exitCompactMode,
+                          onHide: shell.hideToTray,
+                          onQuit: shell.quit,
+                        )
+                      : _CompactPlaybackRow(
+                          track: track,
+                          player: player,
+                          shell: shell,
+                          onTrash: track == null
+                              ? null
+                              : () =>
+                                  setState(() => _trashConfirm = track),
                         ),
-                      _VolumeBtn(player: player),
-                      _ChipBtn(
-                        icon: Icons.remove_rounded,
-                        muted: true,
-                        onPressed: shell.hideToTray,
-                      ),
-                      _ChipBtn(
-                        icon: Icons.open_in_full_rounded,
-                        onPressed: shell.exitCompactMode,
-                      ),
-                      _ChipBtn(
-                        icon: Icons.close_rounded,
-                        muted: true,
-                        onPressed: shell.quit,
-                      ),
-                    ],
-                  ),
                 ),
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactPlaybackRow extends StatelessWidget {
+  const _CompactPlaybackRow({
+    required this.track,
+    required this.player,
+    required this.shell,
+    required this.onTrash,
+  });
+
+  final Track? track;
+  final PlayerService player;
+  final DesktopShell shell;
+  final VoidCallback? onTrash;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        _Cover(path: track?.coverPath),
+        const SizedBox(width: 12),
+        Expanded(
+          child: track == null
+              ? Text(
+                  'Нет трека',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.figtree(
+                    color: _kIconDim,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      track!.displayTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.syne(
+                        color: AppTheme.paper,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        height: 1.1,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      track!.displayArtist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.figtree(
+                        color: AppTheme.mossBright.withValues(alpha: 0.85),
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w500,
+                        height: 1.1,
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+        const SizedBox(width: 8),
+        _TransportCluster(
+          playing: player.playing,
+          onPrev: player.previous,
+          onPlay: player.togglePlayPause,
+          onNext: player.next,
+        ),
+        const SizedBox(width: 4),
+        if (onTrash != null)
+          _ChipBtn(
+            icon: Icons.delete_outline_rounded,
+            muted: true,
+            onPressed: onTrash!,
+          ),
+        _VolumeBtn(player: player),
+        _ChipBtn(
+          icon: Icons.remove_rounded,
+          muted: true,
+          onPressed: shell.hideToTray,
+        ),
+        _ChipBtn(
+          icon: Icons.open_in_full_rounded,
+          onPressed: shell.exitCompactMode,
+        ),
+        _ChipBtn(
+          icon: Icons.close_rounded,
+          muted: true,
+          onPressed: shell.quit,
+        ),
+      ],
+    );
+  }
+}
+
+/// Fits the 540×100 compact window — no Dialog (it clips and stacks over the bar).
+class _CompactTrashConfirm extends StatelessWidget {
+  const _CompactTrashConfirm({
+    required this.track,
+    required this.onCancel,
+    required this.onConfirm,
+    required this.onExpand,
+    required this.onHide,
+    required this.onQuit,
+  });
+
+  final Track track;
+  final VoidCallback onCancel;
+  final VoidCallback onConfirm;
+  final VoidCallback onExpand;
+  final VoidCallback onHide;
+  final VoidCallback onQuit;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        _Cover(path: track.coverPath),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'В корзину?',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.syne(
+                  color: AppTheme.paper,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                  height: 1.1,
+                  letterSpacing: -0.2,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                track.displayTitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.figtree(
+                  color: AppTheme.paperMuted,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w500,
+                  height: 1.1,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        _ConfirmPill(
+          label: 'Отмена',
+          background: Colors.white.withValues(alpha: 0.08),
+          foreground: AppTheme.paper,
+          onPressed: onCancel,
+        ),
+        const SizedBox(width: 6),
+        _ConfirmPill(
+          label: 'В корзину',
+          background: _kYellow,
+          foreground: Colors.black,
+          onPressed: onConfirm,
+        ),
+        const SizedBox(width: 4),
+        _ChipBtn(
+          icon: Icons.remove_rounded,
+          muted: true,
+          onPressed: onHide,
+        ),
+        _ChipBtn(
+          icon: Icons.open_in_full_rounded,
+          onPressed: onExpand,
+        ),
+        _ChipBtn(
+          icon: Icons.close_rounded,
+          muted: true,
+          onPressed: onQuit,
+        ),
+      ],
+    );
+  }
+}
+
+class _ConfirmPill extends StatelessWidget {
+  const _ConfirmPill({
+    required this.label,
+    required this.background,
+    required this.foreground,
+    required this.onPressed,
+  });
+
+  final String label;
+  final Color background;
+  final Color foreground;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: background,
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(999),
+        mouseCursor: SystemMouseCursors.click,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Text(
+            label,
+            style: GoogleFonts.figtree(
+              color: foreground,
+              fontWeight: FontWeight.w800,
+              fontSize: 12,
+              height: 1,
+            ),
+          ),
         ),
       ),
     );
