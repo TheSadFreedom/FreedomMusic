@@ -673,18 +673,61 @@ class _Cover extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final filePath = path;
+    final hasFile = filePath != null && File(filePath).existsSync();
     Widget child = const ColoredBox(
       color: Color(0xFF2E2E2E),
       child: Icon(Icons.album, color: _kIconDim, size: 22),
     );
-    if (path != null && File(path!).existsSync()) {
-      child = Image.file(File(path!), fit: BoxFit.cover);
+    if (hasFile) {
+      child = Image.file(File(filePath), fit: BoxFit.cover);
     }
-    return ClipRRect(
+    final art = ClipRRect(
       borderRadius: BorderRadius.circular(6),
       child: SizedBox(width: 46, height: 46, child: child),
     );
+    if (!hasFile) return art;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () => _openCover(context, filePath),
+        child: art,
+      ),
+    );
   }
+}
+
+Future<void> _openCover(BuildContext context, String path) {
+  return showDialog<void>(
+    context: context,
+    barrierColor: Colors.black.withValues(alpha: 0.82),
+    builder: (ctx) {
+      final size = MediaQuery.sizeOf(ctx);
+      final side = math.min(size.width, size.height) * 0.78;
+      return GestureDetector(
+        onTap: () => Navigator.pop(ctx),
+        behavior: HitTestBehavior.opaque,
+        child: Center(
+          child: GestureDetector(
+            onTap: () {},
+            child: SizedBox(
+              width: side,
+              height: side,
+              child: InteractiveViewer(
+                minScale: 1,
+                maxScale: 4,
+                child: Image.file(
+                  File(path),
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.high,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+  );
 }
 
 class _CenterControls extends StatelessWidget {
