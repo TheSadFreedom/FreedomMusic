@@ -973,68 +973,50 @@ class _RepeatMarkPainter extends CustomPainter {
   final Color color;
   final bool one;
 
+  static final Path _repeat = Path()
+    ..moveTo(7, 7)
+    ..lineTo(17, 7)
+    ..lineTo(17, 10)
+    ..lineTo(21, 6)
+    ..lineTo(17, 2)
+    ..lineTo(17, 5)
+    ..lineTo(5, 5)
+    ..lineTo(5, 11)
+    ..lineTo(7, 11)
+    ..close()
+    ..moveTo(17, 17)
+    ..lineTo(7, 17)
+    ..lineTo(7, 14)
+    ..lineTo(3, 18)
+    ..lineTo(7, 22)
+    ..lineTo(7, 19)
+    ..lineTo(19, 19)
+    ..lineTo(19, 13)
+    ..lineTo(17, 13)
+    ..close();
+
+  static final Path _repeatOne = Path()
+    ..addPath(_repeat, Offset.zero)
+    ..moveTo(13, 15)
+    ..lineTo(13, 9)
+    ..lineTo(12, 9)
+    ..lineTo(10, 10)
+    ..lineTo(10, 11)
+    ..lineTo(11.5, 11)
+    ..lineTo(11.5, 15)
+    ..close();
+
   @override
   void paint(Canvas canvas, Size size) {
-    final s = size.width;
-    final stroke = s * 0.085;
     final paint = Paint()
       ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    final left = s * 0.16;
-    final right = s * 0.84;
-    final top = s * 0.24;
-    final bottom = s * 0.76;
-    final radius = (bottom - top) / 2;
-
-    final loop = Path()
-      ..moveTo(left + radius * 0.15, top)
-      ..lineTo(right - radius, top)
-      ..arcToPoint(
-        Offset(right - radius, bottom),
-        radius: Radius.circular(radius),
-        clockwise: true,
-      )
-      ..lineTo(left + radius, bottom)
-      ..arcToPoint(
-        Offset(left + radius, top),
-        radius: Radius.circular(radius),
-        clockwise: true,
-      );
-    canvas.drawPath(loop, paint);
-
-    _arrow(canvas, paint, Offset(right - s * 0.06, top), s * 0.16, true);
-    _arrow(canvas, paint, Offset(left + s * 0.06, bottom), s * 0.16, false);
-
-    if (!one) return;
-    final tp = TextPainter(
-      text: TextSpan(
-        text: '1',
-        style: TextStyle(
-          color: color,
-          fontSize: s * 0.38,
-          fontWeight: FontWeight.w700,
-          height: 1,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    tp.paint(
-      canvas,
-      Offset((s - tp.width) / 2, (s - tp.height) / 2 + s * 0.02),
-    );
-  }
-
-  void _arrow(Canvas canvas, Paint paint, Offset tip, double w, bool right) {
-    final dir = right ? 1.0 : -1.0;
-    final path = Path()
-      ..moveTo(tip.dx - dir * w, tip.dy - w * 0.55)
-      ..lineTo(tip.dx, tip.dy)
-      ..lineTo(tip.dx - dir * w, tip.dy + w * 0.55);
-    canvas.drawPath(path, paint);
+      ..style = PaintingStyle.fill
+      ..isAntiAlias = true;
+    canvas.save();
+    canvas.translate(size.width * 0.04, size.height * 0.04);
+    canvas.scale(size.width / 24 * 0.92, size.height / 24 * 0.92);
+    canvas.drawPath(one ? _repeatOne : _repeat, paint);
+    canvas.restore();
   }
 
   @override
