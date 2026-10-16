@@ -1,0 +1,427 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
+
+import '../models/artist_release.dart';
+import '../models/track.dart';
+import '../navigation/library_navigation.dart';
+import '../services/library_service.dart';
+import '../services/player_service.dart';
+import '../theme/app_theme.dart';
+import '../utils/duration_format.dart';
+import '../widgets/ambient_backdrop.dart';
+import '../widgets/fullscreen_cover.dart';
+import '../widgets/listen_actions.dart';
+import '../widgets/track_cover_play.dart';
+import '../widgets/track_meta_links.dart';
+
+/// Album / single page in Yandex Music style.
+class ReleaseDetailScreen extends StatefulWidget {
+  const ReleaseDetailScreen({
+    super.key,
+    required this.release,
+    required this.primaryArtist,
+  });
+
+  final ArtistRelease release;
+  final String primaryArtist;
+
+  @override
+  State<ReleaseDetailScreen> createState() => _ReleaseDetailScreenState();
+}
+
+class _ReleaseDetailScreenState extends State<ReleaseDetailScreen> {
+  Future<int>? _listensFuture;
+
+  String get _kindLabel =>
+      widget.release.kind == ReleaseKind.single ? 'Сингл' : 'Альбом';
+
+  String get _artistsLine {
+    final names = <String>{};
+    for (final t in widget.release.tracks) {
+      for (final a in t.artists) {
+        names.add(a);
+      }
+    }
+    if (names.isEmpty) return widget.primaryArtist;
+    final list = names.toList()
+      ..sort((a, b) {
+        if (a == widget.primaryArtist) return -1;
+        if (b == widget.primaryArtist) return 1;
+        return a.toLowerCase().compareTo(b.toLowerCase());
+      });
+    if (list.length == 1) return list.first;
+    if (list.length == 2) return '${list[0]}, ${list[1]}';
+    return '${list[0]}, ${list[1]} и ещё ${list.length - 2} ${_artistsWord(list.length - 2)}';
+  }
+
+  String _artistsWord(int n) {
+    final mod10 = n % 10;
+    final mod100 = n % 100;
+    if (mod10 == 1 && mod100 != 11) return 'артист';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+      return 'артиста';
+    }
+    return 'артистов';
+  }
+
+  String _tracksWord(int n) {
+    final mod10 = n % 10;
+    final mod100 = n % 100;
+    if (mod10 == 1 && mod100 != 11) return 'трек';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+      return 'трека';
+    }
+    return 'треков';
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _listensFuture ??= context.read<LibraryService>().listenMsAllTime().then(
+          (map) => releaseListenCount(widget.release, map),
+        );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final player = context.read<PlayerService>();
+    final release = widget.release;
+    final tracks = List<Track>.from(release.tracks)
+      ..sort((a, b) {
+        final disc = (a.discNumber ?? 1).compareTo(b.discNumber ?? 1);
+        if (disc != 0) return disc;
+        final ta = a.trackNumber ?? 9999;
+        final tb = b.trackNumber ?? 9999;
+        if (ta != tb) return ta.compareTo(tb);
+        return a.displayTitle
+            .toLowerCase()
+            .compareTo(b.displayTitle.toLowerCase());
+      });
+    final wide = MediaQuery.sizeOf(context).width >= 720;
+    final coverSize = wide ? 200.0 : 160.0;
+
+    return Scaffold(
+      backgroundColor: AppTheme.ink,
+      body: FutureBuilder<int>(
+        future: _listensFuture,
+        builder: (context, snap) {
+          final listens = snap.data ?? 0;
+          return CustomScrollView(
+            slivers: [
+              SliverAppBar(
+                pinned: true,
+                backgroundColor: AppTheme.ink.withValues(alpha: 0.92),
+                leading: IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+                title: Text(
+                  release.title,
+                  style: GoogleFonts.syne(fontWeight: FontWeight.w700),
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: Stack(
+                  children: [
+                    const Positioned.fill(
+                      child: AmbientBackdrop(
+                        accent: Color(0xFF4A3A5C),
+                        secondary: Color(0xFF2A3A4C),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+                      child: wide
+                          ? Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _Cover(
+                                  path: release.coverPath,
+                                  size: coverSize,
+                                ),
+                                const SizedBox(width: 28),
+                                Expanded(
+                                  child: _Meta(
+                                    kindLabel: _kindLabel,
+                                    title: release.title,
+                                    artistsLine: _artistsLine,
+                                    primaryArtist: widget.primaryArtist,
+                                    year: release.year,
+                                    listenCount: listens,
+                                    onListen: () => player.playTracks(tracks),
+                                    onShuffle: () => player.playTracks(
+                                      tracks,
+                                      shuffle: true,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : Column(
+                              children: [
+                                _Cover(
+                                  path: release.coverPath,
+                                  size: coverSize,
+                                ),
+                                const SizedBox(height: 20),
+                                _Meta(
+                                  kindLabel: _kindLabel,
+                                  title: release.title,
+                                  artistsLine: _artistsLine,
+                                  primaryArtist: widget.primaryArtist,
+                                  year: release.year,
+                                  listenCount: listens,
+                                  centered: true,
+                                  onListen: () => player.playTracks(tracks),
+                                  onShuffle: () => player.playTracks(
+                                    tracks,
+                                    shuffle: true,
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final track = tracks[index];
+                    return _TrackRow(
+                      index: index + 1,
+                      track: track,
+                      onTap: () =>
+                          player.playTracks(tracks, startIndex: index),
+                    );
+                  },
+                  childCount: tracks.length,
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 20, 24, 40),
+                  child: Text(
+                    [
+                      '${tracks.length} ${_tracksWord(tracks.length)}',
+                      if ((release.year ?? 0) > 0) '${release.year}',
+                      if (listens > 0) formatListenCount(listens),
+                    ].join(' · '),
+                    style: GoogleFonts.figtree(
+                      color: AppTheme.paperMuted,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _Cover extends StatelessWidget {
+  const _Cover({required this.path, required this.size});
+
+  final String? path;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasFile = path != null && File(path!).existsSync();
+    Widget image = ColoredBox(
+      color: AppTheme.inkLift,
+      child: Icon(Icons.album, size: size * 0.35, color: AppTheme.mossBright),
+    );
+    if (hasFile) {
+      image = Image.file(File(path!), fit: BoxFit.cover);
+    }
+
+    return MouseRegion(
+      cursor: hasFile ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      child: GestureDetector(
+        onTap: hasFile ? () => showFullscreenCover(context, path) : null,
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.4),
+                blurRadius: 24,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: image,
+        ),
+      ),
+    );
+  }
+}
+
+class _Meta extends StatelessWidget {
+  const _Meta({
+    required this.kindLabel,
+    required this.title,
+    required this.artistsLine,
+    required this.primaryArtist,
+    required this.year,
+    required this.listenCount,
+    required this.onListen,
+    required this.onShuffle,
+    this.centered = false,
+  });
+
+  final String kindLabel;
+  final String title;
+  final String artistsLine;
+  final String primaryArtist;
+  final int? year;
+  final int listenCount;
+  final VoidCallback onListen;
+  final VoidCallback onShuffle;
+  final bool centered;
+
+  @override
+  Widget build(BuildContext context) {
+    final align = centered ? TextAlign.center : TextAlign.left;
+    final cross =
+        centered ? CrossAxisAlignment.center : CrossAxisAlignment.start;
+
+    return Column(
+      crossAxisAlignment: cross,
+      children: [
+        Text(
+          kindLabel,
+          style: GoogleFonts.figtree(
+            color: AppTheme.paperMuted,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          title,
+          textAlign: align,
+          style: GoogleFonts.syne(
+            color: AppTheme.paper,
+            fontSize: 34,
+            fontWeight: FontWeight.w800,
+            height: 1.05,
+            letterSpacing: -0.8,
+          ),
+        ),
+        const SizedBox(height: 10),
+        MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: () => openArtistPage(context, primaryArtist),
+            child: Text.rich(
+              TextSpan(
+                style: GoogleFonts.figtree(fontSize: 15, height: 1.35),
+                children: [
+                  TextSpan(
+                    text: artistsLine,
+                    style: const TextStyle(
+                      color: AppTheme.paper,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if ((year ?? 0) > 0)
+                    TextSpan(
+                      text: '  ·  $year',
+                      style: const TextStyle(color: AppTheme.paperMuted),
+                    ),
+                  if (listenCount > 0)
+                    TextSpan(
+                      text: '  ·  ${formatListenCount(listenCount)}',
+                      style: const TextStyle(color: AppTheme.paperMuted),
+                    ),
+                ],
+              ),
+              textAlign: align,
+            ),
+          ),
+        ),
+        const SizedBox(height: 22),
+        ListenActions(
+          onListen: onListen,
+          onShuffle: onShuffle,
+          center: centered,
+        ),
+      ],
+    );
+  }
+}
+
+class _TrackRow extends StatelessWidget {
+  const _TrackRow({
+    required this.index,
+    required this.track,
+    required this.onTap,
+  });
+
+  final int index;
+  final Track track;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      mouseCursor: SystemMouseCursors.click,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 28,
+              child: Text(
+                '$index',
+                style: GoogleFonts.figtree(
+                  color: AppTheme.paperMuted,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            TrackCoverPlay(
+              path: track.coverPath,
+              onPlay: onTap,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: TrackMetaLinks(
+                track: track,
+                titleStyle: GoogleFonts.figtree(
+                  color: AppTheme.paper,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+                artistStyle: GoogleFonts.figtree(
+                  color: AppTheme.paperMuted,
+                  fontSize: 13,
+                ),
+                showArtist: false,
+              ),
+            ),
+            Text(
+              formatTrackDuration(track.durationMs),
+              style: GoogleFonts.figtree(
+                color: AppTheme.paperMuted,
+                fontSize: 13,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
