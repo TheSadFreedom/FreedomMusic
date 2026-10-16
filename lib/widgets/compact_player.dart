@@ -9,6 +9,7 @@ import 'package:window_manager/window_manager.dart';
 import '../services/desktop_shell.dart';
 import '../services/player_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/trash_actions.dart';
 
 const _kYellow = Color(0xFFFFDB4D);
 const _kIcon = Color(0xFFD4D0C8);
@@ -114,6 +115,12 @@ class CompactPlayer extends StatelessWidget {
                         onNext: player.next,
                       ),
                       const SizedBox(width: 4),
+                      if (track != null)
+                        _ChipBtn(
+                          icon: Icons.delete_outline_rounded,
+                          muted: true,
+                          onPressed: () => moveTrackToTrash(context, track),
+                        ),
                       _VolumeBtn(player: player),
                       _ChipBtn(
                         icon: Icons.remove_rounded,

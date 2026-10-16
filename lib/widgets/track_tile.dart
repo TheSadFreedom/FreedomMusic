@@ -6,8 +6,10 @@ import '../navigation/library_navigation.dart';
 import '../screens/metadata_editor_screen.dart';
 import '../theme/app_theme.dart';
 import '../utils/duration_format.dart';
+import '../utils/playlist_actions.dart';
 import '../utils/trash_actions.dart';
 import 'track_cover_play.dart';
+import 'track_overflow_menu.dart';
 
 class TrackTile extends StatelessWidget {
   const TrackTile({
@@ -109,26 +111,25 @@ class TrackTile extends StatelessWidget {
                 const SizedBox(width: 8),
                 trailing!,
               ] else if (enableMetadataEdit || enableTrash)
-                PopupMenuButton<String>(
-                  tooltip: 'Действия',
-                  icon: const Icon(Icons.more_vert, size: 20),
-                  onSelected: (value) async {
-                    if (value == 'edit') {
-                      await openMetadataEditor(context, track);
-                    } else if (value == 'trash') {
-                      await moveTrackToTrash(context, track);
-                    }
-                  },
-                  itemBuilder: (_) => [
+                TrackOverflowMenu(
+                  actions: [
                     if (enableMetadataEdit)
-                      const PopupMenuItem(
-                        value: 'edit',
-                        child: Text('Метаданные'),
+                      TrackMenuAction(
+                        icon: Icons.edit_outlined,
+                        label: 'Метаданные',
+                        onSelected: () => openMetadataEditor(context, track),
                       ),
+                    TrackMenuAction(
+                      icon: Icons.queue_music_rounded,
+                      label: 'В плейлист',
+                      onSelected: () => addTrackToPlaylist(context, track),
+                    ),
                     if (enableTrash)
-                      const PopupMenuItem(
-                        value: 'trash',
-                        child: Text('В корзину'),
+                      TrackMenuAction(
+                        icon: Icons.delete_outline_rounded,
+                        label: 'В корзину',
+                        destructive: true,
+                        onSelected: () => moveTrackToTrash(context, track),
                       ),
                   ],
                 ),

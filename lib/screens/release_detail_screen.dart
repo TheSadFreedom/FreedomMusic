@@ -11,6 +11,7 @@ import '../services/library_service.dart';
 import '../services/player_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/duration_format.dart';
+import '../utils/playlist_actions.dart';
 import '../widgets/ambient_backdrop.dart';
 import '../widgets/fullscreen_cover.dart';
 import '../widgets/listen_actions.dart';
@@ -417,6 +418,15 @@ class _TrackRow extends StatelessWidget {
               style: GoogleFonts.figtree(
                 color: AppTheme.paperMuted,
                 fontSize: 13,
+              ),
+            ),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              onPressed: () => addTrackToPlaylist(context, track),
+              icon: const Icon(
+                Icons.queue_music_rounded,
+                color: AppTheme.paperMuted,
+                size: 22,
               ),
             ),
           ],

@@ -253,7 +253,7 @@ class _CenteredHero extends StatelessWidget {
             ),
             const SizedBox(height: 24),
             SizedBox(
-              height: 64,
+              height: 72,
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 420),
                 transitionBuilder: (child, anim) => FadeTransition(
@@ -277,7 +277,11 @@ class _CenteredHero extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                         ),
                       )
-                    : _NowPlaying(track: current!),
+                    : _NowPlaying(
+                        track: current!,
+                        onStop: () =>
+                            context.read<PlayerService>().stopAndClear(),
+                      ),
               ),
             ),
           ],
@@ -288,9 +292,13 @@ class _CenteredHero extends StatelessWidget {
 }
 
 class _NowPlaying extends StatelessWidget {
-  const _NowPlaying({required this.track});
+  const _NowPlaying({
+    required this.track,
+    required this.onStop,
+  });
 
   final Track track;
+  final VoidCallback onStop;
 
   @override
   Widget build(BuildContext context) {
@@ -347,6 +355,27 @@ class _NowPlaying extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ),
+        const SizedBox(width: 10),
+        Material(
+          color: AppTheme.lime,
+          shape: const CircleBorder(),
+          elevation: 2,
+          shadowColor: Colors.black,
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            mouseCursor: SystemMouseCursors.click,
+            onTap: onStop,
+            child: const SizedBox(
+              width: 36,
+              height: 36,
+              child: Icon(
+                Icons.stop_rounded,
+                color: Colors.black,
+                size: 22,
+              ),
+            ),
           ),
         ),
       ],
