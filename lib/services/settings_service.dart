@@ -16,12 +16,20 @@ class SettingsService extends ChangeNotifier {
   static const _playbackPositionKey = 'playback_position_ms';
   static const _playbackShuffleKey = 'playback_shuffle';
   static const _playbackRepeatKey = 'playback_repeat';
+  static const _artistTagsRestoredKey = 'artist_tags_restored_v1';
   static const _artistPhotoPrefix = 'artist_photo_';
   static const _artistPhotoManualPrefix = 'artist_photo_manual_';
 
   static Future<SettingsService> create() async {
     final prefs = await SharedPreferences.getInstance();
     return SettingsService(prefs);
+  }
+
+  bool get artistTagsRestored =>
+      _prefs.getBool(_artistTagsRestoredKey) ?? false;
+
+  Future<void> setArtistTagsRestored() async {
+    await _prefs.setBool(_artistTagsRestoredKey, true);
   }
 
   bool get scanOnStartup => _prefs.getBool(_scanOnStartupKey) ?? false;

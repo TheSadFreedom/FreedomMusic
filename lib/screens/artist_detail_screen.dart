@@ -11,6 +11,7 @@ import '../services/library_service.dart';
 import '../services/player_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/image_pick.dart';
+import '../utils/playlist_actions.dart';
 import '../widgets/ambient_backdrop.dart';
 import '../widgets/listen_actions.dart';
 import '../widgets/track_cover_play.dart';
@@ -133,9 +134,9 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
           ),
         ),
         content: Text(
-          '«$selected» будет объединён с «${widget.artist}». '
-          'Файлы MP3 не меняются — только индекс библиотеки. '
-          'Прослушивания и плейлисты сохранятся.',
+          '«$selected» попадёт на карточку «${widget.artist}». '
+          'В треках останется исходное имя. '
+          'Поиск найдёт и старое, и новое название.',
           style: GoogleFonts.figtree(
             color: AppTheme.paperMuted,
             height: 1.45,
@@ -679,6 +680,15 @@ class _PopularTrackRow extends StatelessWidget {
                 fontWeight: FontWeight.w600,
               ),
             ),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              onPressed: () => addTrackToPlaylist(context, track),
+              icon: const Icon(
+                Icons.queue_music_rounded,
+                color: AppTheme.paperMuted,
+                size: 22,
+              ),
+            ),
           ],
         ),
       ),
@@ -1051,8 +1061,8 @@ class _MergeArtistSheetState extends State<_MergeArtistSheet> {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: Text(
-                'Выберите артиста, которого нужно слить в текущую карточку. '
-                'Файлы не переписываются.',
+                'Выберите артиста, которого нужно добавить на эту карточку. '
+                'Имена в треках не меняются.',
                 style: GoogleFonts.figtree(
                   color: AppTheme.paperMuted,
                   fontSize: 13,

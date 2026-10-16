@@ -735,8 +735,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
             final filtered = all.where((t) {
               final q = query.toLowerCase();
               if (q.isEmpty) return true;
-              return t.displayTitle.toLowerCase().contains(q) ||
-                  t.displayArtist.toLowerCase().contains(q);
+              return library.trackMatchesQuery(t, query);
             }).toList();
             return AlertDialog(
               title: const Text('Добавить трек'),

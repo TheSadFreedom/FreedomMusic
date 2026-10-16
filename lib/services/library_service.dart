@@ -8,10 +8,13 @@ import 'package:path/path.dart' as p;
 
 import '../data/app_paths.dart';
 import '../data/database.dart';
+import '../data/track_key.dart';
 import '../models/playlist.dart';
 import '../models/track.dart';
+import '../utils/lyrics_format.dart';
 import 'artist_photo_service.dart';
 import 'backup_service.dart';
+import 'lyrics_service.dart';
 import 'meta_lookup_service.dart';
 import 'metadata_writer.dart';
 import 'scanner_service.dart';
@@ -28,6 +31,7 @@ class LibraryService extends ChangeNotifier {
         _scanner = ScannerService(paths: paths, db: db),
         _metaLookup = MetaLookupService(),
         _artistPhotos = ArtistPhotoService(),
+        _lyrics = LyricsService(),
         _backup = BackupService(paths: paths, db: db, settings: settings);
 
   final AppPaths _paths;
@@ -36,7 +40,11 @@ class LibraryService extends ChangeNotifier {
   final ScannerService _scanner;
   final MetaLookupService _metaLookup;
   final ArtistPhotoService _artistPhotos;
+  final LyricsService _lyrics;
   final BackupService _backup;
+
+  final Set<String> _lyricsFetching = {};
+  final Set<String> _lyricsMisses = {};
 
   bool _artistPhotosRefreshing = false;
   ArtistPhotoProgress? _artistPhotoProgress;
@@ -44,8 +52,18 @@ class LibraryService extends ChangeNotifier {
   bool get artistPhotosRefreshing => _artistPhotosRefreshing;
   ArtistPhotoProgress? get artistPhotoProgress => _artistPhotoProgress;
 
+  bool isFetchingLyrics(String trackKey) => _lyricsFetching.contains(trackKey);
+
+  bool lyricsLookupFailed(String trackKey) => _lyricsMisses.contains(trackKey);
+
   List<Track> _tracks = [];
   List<Playlist> _playlists = [];
+
+  /// normalizeTag(alias) → artist-card display name.
+  Map<String, String> _aliasToCard = {};
+
+  /// normalizeTag(card) → other names that open the same card.
+  Map<String, List<String>> _aliasLabelsByCard = {};
   bool _loading = true;
   bool _scanning = false;
   ScanProgress? _scanProgress;
@@ -70,6 +88,13 @@ class LibraryService extends ChangeNotifier {
       if (remapped > 0) {
         await _settings.replaceChartSnapshots({});
       }
+      if (!_settings.artistTagsRestored) {
+        final restored = await _scanner.restoreOriginalArtistTags();
+        if (restored > 0) {
+          await _settings.replaceChartSnapshots({});
+        }
+        await _settings.setArtistTagsRestored();
+      }
       await reload();
       if (_settings.scanOnStartup) {
         await scanLibrary();
@@ -89,8 +114,72 @@ class LibraryService extends ChangeNotifier {
     await _db.syncNewPlaylistMembership();
     _tracks = await _db.getAllTracks();
     _playlists = await _db.getPlaylists();
+    await _loadArtistAliases();
     _error = null;
     notifyListeners();
+  }
+
+  Future<void> _loadArtistAliases() async {
+    final rows = await _db.getArtistAliases();
+    final toCard = <String, String>{};
+    final labels = <String, List<String>>{};
+    for (final row in rows) {
+      final card = row.toDisplay.trim();
+      if (card.isEmpty) continue;
+      toCard[row.fromNorm] = card;
+      final bucket = labels.putIfAbsent(normalizeTag(card), () => []);
+      final from = row.fromDisplay.trim();
+      if (from.isNotEmpty &&
+          normalizeTag(from) != normalizeTag(card) &&
+          !bucket.any((n) => normalizeTag(n) == normalizeTag(from))) {
+        bucket.add(from);
+      }
+    }
+    _aliasToCard = toCard;
+    _aliasLabelsByCard = labels;
+  }
+
+  /// Name shown on the artist card. Track tags are not rewritten.
+  String artistCardName(String artistName) {
+    final trimmed = artistName.trim();
+    if (trimmed.isEmpty) return trimmed;
+    return _aliasToCard[normalizeTag(trimmed)] ?? trimmed;
+  }
+
+  List<String> aliasLabelsForCard(String cardName) {
+    return _aliasLabelsByCard[normalizeTag(cardName)] ?? const [];
+  }
+
+  bool artistCardMatchesQuery(String cardName, String query) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return true;
+    if (cardName.toLowerCase().contains(q)) return true;
+    for (final alias in aliasLabelsForCard(cardName)) {
+      if (alias.toLowerCase().contains(q)) return true;
+    }
+    return false;
+  }
+
+  bool trackMatchesQuery(Track track, String query) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return true;
+    final tokens = q.split(RegExp(r'\s+')).where((t) => t.isNotEmpty);
+    final hay = StringBuffer(track.searchableText);
+    final names = <String>[
+      ...track.artists,
+      ...splitArtists(track.albumArtist),
+    ];
+    for (final name in names) {
+      final card = artistCardName(name);
+      hay.write(' ');
+      hay.write(card.toLowerCase());
+      for (final alias in aliasLabelsForCard(card)) {
+        hay.write(' ');
+        hay.write(alias.toLowerCase());
+      }
+    }
+    final text = hay.toString();
+    return tokens.every(text.contains);
   }
 
   Playlist? get trashPlaylist {
@@ -379,9 +468,13 @@ class LibraryService extends ChangeNotifier {
 
     for (final t in _tracks) {
       for (final name in t.artists) {
-        final lower = name.toLowerCase();
-        final label = displayName.putIfAbsent(lower, () => name);
-        map.putIfAbsent(label, () => []).add(t);
+        final card = artistCardName(name);
+        final lower = card.toLowerCase();
+        final label = displayName.putIfAbsent(lower, () => card);
+        final list = map.putIfAbsent(label, () => []);
+        if (!list.any((existing) => existing.trackKey == t.trackKey)) {
+          list.add(t);
+        }
       }
     }
 
@@ -401,7 +494,7 @@ class LibraryService extends ChangeNotifier {
   List<Track> search(String query) {
     final q = query.trim();
     if (q.isEmpty) return const [];
-    return _tracks.where((t) => t.matchesQuery(q)).toList();
+    return _tracks.where((t) => trackMatchesQuery(t, q)).toList();
   }
 
   Future<void> recordPlay(String trackKey) => _db.recordPlay(trackKey);
@@ -411,6 +504,48 @@ class LibraryService extends ChangeNotifier {
 
   /// Writes tags to disk and refreshes the local index.
   ///
+  /// If the track has no lyrics tag, try LRCLIB and store the result in the DB.
+  /// Returns the updated track when lyrics were found, otherwise null.
+  Future<Track?> ensureRemoteLyrics(Track track) async {
+    final key = track.trackKey;
+    if (hasLyrics(track.lyrics)) return null;
+    final cached = trackByKey(key);
+    if (cached != null && hasLyrics(cached.lyrics)) return cached;
+    if (_lyricsMisses.contains(key) || _lyricsFetching.contains(key)) {
+      return null;
+    }
+
+    _lyricsFetching.add(key);
+    notifyListeners();
+    try {
+      final text = await _lyrics.fetchForTrack(track);
+      if (text == null || !hasLyrics(text)) {
+        _lyricsMisses.add(key);
+        return null;
+      }
+      await _db.updateTrackLyrics(key, text);
+      final updated = (trackByKey(key) ?? track).copyWith(lyrics: text);
+      final i = _tracks.indexWhere((t) => t.trackKey == key);
+      if (i >= 0) _tracks[i] = updated;
+      _lyricsMisses.remove(key);
+      return updated;
+    } catch (e, st) {
+      debugPrint('LRCLIB lyrics $key: $e\n$st');
+      _lyricsMisses.add(key);
+      return null;
+    } finally {
+      _lyricsFetching.remove(key);
+      notifyListeners();
+    }
+  }
+
+  Track? trackByKey(String trackKey) {
+    for (final t in _tracks) {
+      if (t.trackKey == trackKey) return t;
+    }
+    return null;
+  }
+
   /// Set [refreshLibrary] to false during batch autofill — a full [reload]
   /// after every file multiplies RAM (all tracks + lyrics + UI rebuilds).
   Future<Track> saveTrackMetadata(
@@ -443,9 +578,10 @@ class LibraryService extends ChangeNotifier {
     return updated;
   }
 
-  Future<void> createPlaylist(String name) async {
-    await _db.createPlaylist(name);
+  Future<int> createPlaylist(String name) async {
+    final id = await _db.createPlaylist(name);
     await reload();
+    return id;
   }
 
   Playlist? playlistById(int id) {
@@ -530,7 +666,6 @@ class LibraryService extends ChangeNotifier {
     if (a.toLowerCase() == b.toLowerCase()) return;
 
     await _db.upsertArtistAlias(fromDisplay: b, toDisplay: a);
-    await _db.rewriteArtistName(fromDisplay: b, toDisplay: a);
 
     final fromPhoto = _settings.artistPhotoPath(b);
     final intoPhoto = _settings.artistPhotoPath(a);
@@ -610,11 +745,13 @@ class LibraryService extends ChangeNotifier {
 
   Future<List<Track>> playlistTracks(int id) => _db.getPlaylistTracks(id);
 
-  Future<void> addToPlaylist(int playlistId, String trackKey) async {
+  /// Returns false when the track was already in the playlist.
+  Future<bool> addToPlaylist(int playlistId, String trackKey) async {
     final pl = playlistById(playlistId);
-    if (pl == null || pl.isTrash) return;
-    await _db.addToPlaylist(playlistId, trackKey);
-    await reload();
+    if (pl == null || pl.isSystem) return false;
+    final added = await _db.addTrackToPlaylist(playlistId, trackKey);
+    if (added) await reload();
+    return added;
   }
 
   Future<void> removeFromPlaylist(int playlistId, String trackKey) async {

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import '../data/app_paths.dart';
@@ -82,7 +83,6 @@ class ScannerService {
         .toList();
 
     final existingMtimes = await _db.getFileMtimes();
-    final artistAliases = await _db.getArtistAliasMap();
     final seenPaths = <String>{};
 
     var added = 0;
@@ -120,7 +120,7 @@ class ScannerService {
         continue;
       }
 
-      final track = await _readTrack(file, artistAliases);
+      final track = await _readTrack(file);
       if (track == null) {
         skipped++;
         continue;
@@ -159,19 +159,56 @@ class ScannerService {
     );
   }
 
-  Future<Track?> _readTrack(
-    File file,
-    Map<String, String> artistAliases,
-  ) async {
+  /// Previous merges rewrote the index artist to the card name.
+  /// Read the file tag back so tracks show the original name again.
+  Future<int> restoreOriginalArtistTags() async {
+    final aliases = await _db.getArtistAliases();
+    if (aliases.isEmpty) return 0;
+    final targets = {for (final a in aliases) normalizeTag(a.toDisplay)};
+    final tracks = await _db.getAllTracks(includeTrashed: true);
+    var changed = 0;
+
+    for (final track in tracks) {
+      final names = [
+        ...track.artists,
+        ...splitArtists(track.albumArtist),
+      ];
+      if (!names.any((n) => targets.contains(normalizeTag(n)))) continue;
+      final path = track.primaryPath;
+      if (path == null || !File(path).existsSync()) continue;
+      try {
+        final meta = readMetadata(File(path), getImage: false);
+        final artist = formatArtists(_firstOrUnknown(meta.artist));
+        final rawAlbum = meta.albumArtist?.trim();
+        final albumArtist = (rawAlbum == null || rawAlbum.isEmpty)
+            ? null
+            : formatArtists(rawAlbum);
+        if (artist == track.artist && albumArtist == track.albumArtist) {
+          continue;
+        }
+        final updated = track.copyWith(
+          trackKey: buildTrackKey(artist: artist, title: track.title),
+          artist: artist,
+          albumArtist: albumArtist,
+        );
+        await _db.applyMetadataEdit(
+          oldTrackKey: track.trackKey,
+          updated: updated,
+        );
+        changed++;
+      } catch (e) {
+        debugPrint('restore artist tag failed for $path: $e');
+      }
+    }
+    return changed;
+  }
+
+  Future<Track?> _readTrack(File file) async {
     try {
       final meta = readMetadata(file, getImage: true);
       final title = _pickTitle(meta, file.path);
-      // "A, B" stays one tag string but splits into two artists in UI.
-      // Aliases remaps renamed/merged artists without rewriting files.
-      final artist = applyArtistAliases(
-        formatArtists(_firstOrUnknown(meta.artist)),
-        artistAliases,
-      );
+      // Keep the tag as written. Artist merges only group the artist card.
+      final artist = formatArtists(_firstOrUnknown(meta.artist));
       final album = meta.album?.trim().isNotEmpty == true
           ? meta.album!.trim()
           : 'Unknown';
@@ -181,7 +218,7 @@ class ScannerService {
       final rawAlbumArtist = meta.albumArtist?.trim();
       final albumArtist = (rawAlbumArtist == null || rawAlbumArtist.isEmpty)
           ? null
-          : applyArtistAliases(rawAlbumArtist, artistAliases);
+          : formatArtists(rawAlbumArtist);
       final lyrics = meta.lyrics?.trim();
       final durationMs = meta.duration?.inMilliseconds;
       final year = meta.year?.year;

@@ -373,8 +373,21 @@ class AppDatabase {
     return rows.map((r) => r['file_path'] as String).toSet();
   }
 
+  /// Persist lyrics found online without rewriting audio tags.
+  Future<void> updateTrackLyrics(String trackKey, String lyrics) async {
+    final text = lyrics.trim();
+    if (text.isEmpty) return;
+    await _db.update(
+      'tracks',
+      {'lyrics': text},
+      where: 'track_key = ?',
+      whereArgs: [trackKey],
+    );
+  }
+
   /// Upsert logical track + link file. Never duplicates track_key.
   /// Preserves [trashed_at] / [added_at]; sets [added_at] for brand-new tracks.
+  /// Keeps existing lyrics when the file tag has none (e.g. LRCLIB fill).
   Future<void> upsertTrackFile({
     required Track track,
     required String filePath,
@@ -383,7 +396,7 @@ class AppDatabase {
     await _db.transaction((txn) async {
       final existing = await txn.query(
         'tracks',
-        columns: ['trashed_at', 'added_at'],
+        columns: ['trashed_at', 'added_at', 'lyrics'],
         where: 'track_key = ?',
         whereArgs: [track.trackKey],
         limit: 1,
@@ -396,6 +409,15 @@ class AppDatabase {
           ? (track.addedAt?.millisecondsSinceEpoch ?? now)
           : (existing.first['added_at'] as int? ??
               track.addedAt?.millisecondsSinceEpoch);
+      final incomingLyrics = track.lyrics?.trim();
+      final existingLyrics = existing.isEmpty
+          ? null
+          : (existing.first['lyrics'] as String?)?.trim();
+      final lyrics = (incomingLyrics != null && incomingLyrics.isNotEmpty)
+          ? incomingLyrics
+          : (existingLyrics != null && existingLyrics.isNotEmpty
+              ? existingLyrics
+              : null);
 
       await txn.insert(
         'tracks',
@@ -406,7 +428,7 @@ class AppDatabase {
           'album': track.album,
           'genre': track.genre,
           'album_artist': track.albumArtist,
-          'lyrics': track.lyrics,
+          'lyrics': lyrics,
           'year': track.year,
           'track_number': track.trackNumber,
           'track_total': track.trackTotal,
@@ -540,13 +562,24 @@ class AppDatabase {
     });
   }
 
-  /// normalizeTag(from) → display name of canonical artist.
+  /// normalizeTag(from) → display name of canonical artist card.
   Future<Map<String, String>> getArtistAliasMap() async {
-    final rows = await _db.query('artist_aliases');
+    final rows = await getArtistAliases();
     return {
-      for (final row in rows)
-        row['from_norm'] as String: row['to_display'] as String,
+      for (final row in rows) row.fromNorm: row.toDisplay,
     };
+  }
+
+  Future<List<ArtistAlias>> getArtistAliases() async {
+    final rows = await _db.query('artist_aliases');
+    return [
+      for (final row in rows)
+        ArtistAlias(
+          fromNorm: row['from_norm'] as String,
+          fromDisplay: row['from_display'] as String,
+          toDisplay: row['to_display'] as String,
+        ),
+    ];
   }
 
   Future<void> upsertArtistAlias({
@@ -1119,13 +1152,13 @@ class AppDatabase {
     });
   }
 
-  Future<void> addToPlaylist(int playlistId, String trackKey) async {
+  Future<bool> addTrackToPlaylist(int playlistId, String trackKey) async {
     final existing = await _db.query(
       'playlist_tracks',
       where: 'playlist_id = ? AND track_key = ?',
       whereArgs: [playlistId, trackKey],
     );
-    if (existing.isNotEmpty) return;
+    if (existing.isNotEmpty) return false;
 
     final posRows = await _db.rawQuery(
       'SELECT COALESCE(MAX(position), -1) + 1 AS next_pos '
@@ -1139,6 +1172,7 @@ class AppDatabase {
       'position': position,
     });
     await _touchPlaylist(playlistId);
+    return true;
   }
 
   Future<void> removeFromPlaylist(int playlistId, String trackKey) async {
@@ -1283,6 +1317,18 @@ class PlaylistImportRow {
   final String? coverPath;
   final String? systemKind;
   final List<String> trackKeys;
+}
+
+class ArtistAlias {
+  const ArtistAlias({
+    required this.fromNorm,
+    required this.fromDisplay,
+    required this.toDisplay,
+  });
+
+  final String fromNorm;
+  final String fromDisplay;
+  final String toDisplay;
 }
 
 enum ChartPeriod {

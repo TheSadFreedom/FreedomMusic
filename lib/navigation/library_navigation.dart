@@ -88,10 +88,11 @@ Future<void> openArtistFromTrack(BuildContext context, Track track) async {
 
 Future<void> openArtistPage(BuildContext context, String artistName) async {
   final library = context.read<LibraryService>();
+  final cardName = library.artistCardName(artistName);
   final byArtist = library.tracksByArtist();
-  final tracks = byArtist[artistName] ??
+  final tracks = byArtist[cardName] ??
       byArtist.entries
-          .where((e) => e.key.toLowerCase() == artistName.toLowerCase())
+          .where((e) => e.key.toLowerCase() == cardName.toLowerCase())
           .map((e) => e.value)
           .firstOrNull;
   if (tracks == null || tracks.isEmpty) return;
@@ -114,19 +115,19 @@ Future<void> openArtistPage(BuildContext context, String artistName) async {
       return a.key.toLowerCase().compareTo(b.key.toLowerCase());
     });
   final rankIndex = ranked.indexWhere(
-    (e) => e.key.toLowerCase() == artistName.toLowerCase(),
+    (e) => e.key.toLowerCase() == cardName.toLowerCase(),
   );
   final chartRank = rankIndex >= 0 ? rankIndex + 1 : 0;
   final playCount = totals.entries
       .firstWhere(
-        (e) => e.key.toLowerCase() == artistName.toLowerCase(),
-        orElse: () => MapEntry(artistName, 0),
+        (e) => e.key.toLowerCase() == cardName.toLowerCase(),
+        orElse: () => MapEntry(cardName, 0),
       )
       .value;
 
   final displayName = byArtist.keys.firstWhere(
-    (k) => k.toLowerCase() == artistName.toLowerCase(),
-    orElse: () => artistName,
+    (k) => k.toLowerCase() == cardName.toLowerCase(),
+    orElse: () => cardName,
   );
 
   if (!context.mounted) return;
