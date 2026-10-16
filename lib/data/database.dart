@@ -19,7 +19,7 @@ class AppDatabase {
     final db = await databaseFactory.openDatabase(
       paths.databasePath,
       options: OpenDatabaseOptions(
-        version: 8,
+        version: 9,
         onCreate: (db, version) async {
           await db.execute('''
             CREATE TABLE tracks (
@@ -29,6 +29,7 @@ class AppDatabase {
               album TEXT NOT NULL,
               genre TEXT NOT NULL,
               album_artist TEXT,
+              producer TEXT,
               lyrics TEXT,
               year INTEGER,
               track_number INTEGER,
@@ -167,6 +168,9 @@ class AppDatabase {
                 to_display TEXT NOT NULL
               )
             ''');
+          }
+          if (oldVersion < 9) {
+            await db.execute('ALTER TABLE tracks ADD COLUMN producer TEXT');
           }
         },
       ),
@@ -428,6 +432,7 @@ class AppDatabase {
           'album': track.album,
           'genre': track.genre,
           'album_artist': track.albumArtist,
+          'producer': track.producer,
           'lyrics': lyrics,
           'year': track.year,
           'track_number': track.trackNumber,
@@ -485,6 +490,7 @@ class AppDatabase {
           'album': updated.album,
           'genre': updated.genre,
           'album_artist': updated.albumArtist,
+          'producer': updated.producer,
           'lyrics': updated.lyrics,
           'year': updated.year,
           'track_number': updated.trackNumber,
@@ -1279,6 +1285,7 @@ class AppDatabase {
       album: row['album'] as String,
       genre: row['genre'] as String,
       albumArtist: row['album_artist'] as String?,
+      producer: row['producer'] as String?,
       lyrics: row['lyrics'] as String?,
       year: row['year'] as int?,
       trackNumber: row['track_number'] as int?,

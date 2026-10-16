@@ -12,6 +12,7 @@ class Track {
     required this.album,
     required this.genre,
     this.albumArtist,
+    this.producer,
     this.lyrics,
     this.year,
     this.trackNumber,
@@ -31,6 +32,7 @@ class Track {
   final String album;
   final String genre;
   final String? albumArtist;
+  final String? producer;
   final String? lyrics;
   final int? year;
   /// Track number on the album (TRCK).
@@ -82,6 +84,7 @@ class Track {
       title,
       artist,
       albumArtist ?? '',
+      producer ?? '',
       album,
       genre,
       lyrics ?? '',
@@ -108,6 +111,7 @@ class Track {
     String? album,
     String? genre,
     Object? albumArtist = _unset,
+    Object? producer = _unset,
     Object? lyrics = _unset,
     Object? year = _unset,
     Object? trackNumber = _unset,
@@ -128,6 +132,7 @@ class Track {
       albumArtist: identical(albumArtist, _unset)
           ? this.albumArtist
           : albumArtist as String?,
+      producer: identical(producer, _unset) ? this.producer : producer as String?,
       lyrics: identical(lyrics, _unset) ? this.lyrics : lyrics as String?,
       year: identical(year, _unset) ? this.year : year as int?,
       trackNumber: identical(trackNumber, _unset)

@@ -8,6 +8,7 @@ import '../data/app_paths.dart';
 import '../data/database.dart';
 import '../data/track_key.dart';
 import '../models/track.dart';
+import 'metadata_writer.dart';
 
 class ScanProgress {
   const ScanProgress({
@@ -219,6 +220,7 @@ class ScannerService {
       final albumArtist = (rawAlbumArtist == null || rawAlbumArtist.isEmpty)
           ? null
           : formatArtists(rawAlbumArtist);
+      final producer = readFileProducer(file.path);
       final lyrics = meta.lyrics?.trim();
       final durationMs = meta.duration?.inMilliseconds;
       final year = meta.year?.year;
@@ -243,6 +245,7 @@ class ScannerService {
         album: album,
         genre: genre.isEmpty ? 'Unknown' : genre,
         albumArtist: albumArtist,
+        producer: producer,
         lyrics: (lyrics == null || lyrics.isEmpty) ? null : lyrics,
         year: year,
         trackNumber: trackNumber,

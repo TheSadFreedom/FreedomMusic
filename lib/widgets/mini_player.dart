@@ -18,6 +18,7 @@ import '../utils/breakpoints.dart';
 import '../utils/duration_format.dart';
 import '../utils/lyrics_format.dart';
 import '../utils/playlist_actions.dart';
+import 'lyrics_view.dart';
 import 'track_overflow_menu.dart';
 import '../utils/trash_actions.dart';
 
@@ -36,6 +37,8 @@ class MiniPlayer extends StatefulWidget {
 class _MiniPlayerState extends State<MiniPlayer> {
   bool _showLyrics = false;
   bool _showQueue = false;
+  final _lyricsPortal = OverlayPortalController();
+  final _barKey = GlobalKey();
   final _volumePortal = OverlayPortalController();
   final _volumeLink = LayerLink();
   Timer? _volumeHideTimer;
@@ -44,7 +47,20 @@ class _MiniPlayerState extends State<MiniPlayer> {
   void dispose() {
     _volumeHideTimer?.cancel();
     if (_volumePortal.isShowing) _volumePortal.hide();
+    if (_lyricsPortal.isShowing) _lyricsPortal.hide();
     super.dispose();
+  }
+
+  void _syncLyricsPortal() {
+    if (_showLyrics == _lyricsPortal.isShowing) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _showLyrics == _lyricsPortal.isShowing) return;
+      if (_showLyrics) {
+        _lyricsPortal.show();
+      } else {
+        _lyricsPortal.hide();
+      }
+    });
   }
 
   void _showVolumeHover() {
@@ -86,8 +102,13 @@ class _MiniPlayerState extends State<MiniPlayer> {
     final track = player.current;
     if (track == null) {
       _hideVolume();
+      if (_showLyrics) {
+        _showLyrics = false;
+        _syncLyricsPortal();
+      }
       return const SizedBox.shrink();
     }
+    _syncLyricsPortal();
 
     final progress = player.duration == null ||
             player.duration!.inMilliseconds == 0
@@ -136,22 +157,16 @@ class _MiniPlayerState extends State<MiniPlayer> {
 
     final panels = AnimatedCrossFade(
       firstChild: const SizedBox(width: double.infinity, height: 0),
-      secondChild: _showLyrics
-          ? _LyricsPanel(
-              title: track.displayTitle,
-              lyrics: lyricsText,
-              fetching: lyricsFetching,
-              notFound: lyricsFailed && lyricsText.isEmpty,
-              onClose: () => setState(() => _showLyrics = false),
-            )
-          : _QueuePanel(
+      secondChild: _showQueue
+          ? _QueuePanel(
               queue: player.queue,
               currentKey: track.trackKey,
               onSelect: (i) => player.playQueueIndex(i),
               onReorder: player.reorderQueue,
               onClose: () => setState(() => _showQueue = false),
-            ),
-      crossFadeState: (_showLyrics || _showQueue)
+            )
+          : const SizedBox(width: double.infinity, height: 0),
+      crossFadeState: _showQueue
           ? CrossFadeState.showSecond
           : CrossFadeState.showFirst,
       duration: const Duration(milliseconds: 220),
@@ -275,38 +290,63 @@ class _MiniPlayerState extends State<MiniPlayer> {
       );
     }
 
-    return Material(
-      color: Colors.transparent,
-      child: SafeArea(
-        top: false,
-        bottom: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: EdgeInsets.fromLTRB(phone ? 8 : 10, 0, phone ? 8 : 10, 8),
-              // Clip.none so the progress thumb can sit on the top edge
-              // without being cut by the rounded bar.
-              child: Container(
-                clipBehavior: Clip.none,
-                decoration: BoxDecoration(
-                  color: _kBar,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.06),
+    return OverlayPortal(
+      controller: _lyricsPortal,
+      overlayChildBuilder: (context) {
+        return LyricsStage(
+          key: ValueKey(track.trackKey),
+          anchorKey: _barKey,
+          title: track.displayTitle,
+          raw: lyricsSource.lyrics,
+          fetching: lyricsFetching,
+          notFound: lyricsFailed && lyricsText.isEmpty,
+          onClose: () {
+            if (!mounted) return;
+            setState(() => _showLyrics = false);
+          },
+        );
+      },
+      child: KeyedSubtree(
+        key: _barKey,
+        child: Material(
+          color: Colors.transparent,
+          child: SafeArea(
+            top: false,
+            bottom: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    phone ? 8 : 10,
+                    0,
+                    phone ? 8 : 10,
+                    8,
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.45),
-                      blurRadius: 24,
-                      offset: const Offset(0, 8),
+                  // Clip.none so the progress thumb can sit on the top edge
+                  // without being cut by the rounded bar.
+                  child: Container(
+                    clipBehavior: Clip.none,
+                    decoration: BoxDecoration(
+                      color: _kBar,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.06),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.45),
+                          blurRadius: 24,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
                     ),
-                  ],
+                    child: controlsBody,
+                  ),
                 ),
-                child: controlsBody,
-              ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -1159,100 +1199,6 @@ class _VolumeCapsulePainter extends CustomPainter {
       oldDelegate.volume != volume;
 }
 
-class _LyricsPanel extends StatelessWidget {
-  const _LyricsPanel({
-    required this.title,
-    required this.lyrics,
-    required this.fetching,
-    required this.notFound,
-    required this.onClose,
-  });
-
-  final String title;
-  final String lyrics;
-  final bool fetching;
-  final bool notFound;
-  final VoidCallback onClose;
-
-  @override
-  Widget build(BuildContext context) {
-    final body = lyrics.isNotEmpty
-        ? SelectableText(
-            lyrics,
-            style: GoogleFonts.figtree(
-              color: AppTheme.paper,
-              fontSize: 15,
-              height: 1.55,
-            ),
-          )
-        : Text(
-            fetching
-                ? 'Ищем текст на LRCLIB…'
-                : notFound
-                    ? 'Текст не найден'
-                    : 'Текста нет',
-            style: GoogleFonts.figtree(
-              color: _kIconDim,
-              fontSize: 14,
-              height: 1.45,
-            ),
-          );
-
-    return Container(
-      width: double.infinity,
-      constraints: const BoxConstraints(maxHeight: 200),
-      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-      padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.35),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppTheme.paper.withValues(alpha: 0.08)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Текст · $title',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.syne(
-                    color: _kYellow,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-              if (fetching)
-                const Padding(
-                  padding: EdgeInsets.only(right: 4),
-                  child: SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: _kYellow,
-                    ),
-                  ),
-                ),
-              IconButton(
-                onPressed: onClose,
-                icon: const Icon(Icons.close, size: 18, color: _kIconDim),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Expanded(
-            child: SingleChildScrollView(child: body),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _QueuePanel extends StatelessWidget {
   const _QueuePanel({
     required this.queue,
@@ -1270,9 +1216,10 @@ class _QueuePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final queueH = MediaQuery.sizeOf(context).height * 0.5;
     return Container(
       width: double.infinity,
-      constraints: const BoxConstraints(maxHeight: 220),
+      height: queueH,
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
       decoration: BoxDecoration(

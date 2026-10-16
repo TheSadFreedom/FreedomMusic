@@ -41,6 +41,7 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
   late final TextEditingController _artist;
   late final TextEditingController _album;
   late final TextEditingController _albumArtist;
+  late final TextEditingController _producer;
   late final TextEditingController _genre;
   late final TextEditingController _year;
   late final TextEditingController _trackNumber;
@@ -63,6 +64,12 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
     _artist = TextEditingController(text: t.artist);
     _album = TextEditingController(text: t.album);
     _albumArtist = TextEditingController(text: t.albumArtist ?? '');
+    final storedProducer = t.producer?.trim();
+    final path = t.primaryPath;
+    final fileProducer = (storedProducer != null && storedProducer.isNotEmpty)
+        ? storedProducer
+        : (path == null ? '' : (readFileProducer(path) ?? ''));
+    _producer = TextEditingController(text: fileProducer);
     _genre = TextEditingController(text: t.genre);
     final y = t.year;
     _year = TextEditingController(
@@ -92,6 +99,7 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
     _artist.dispose();
     _album.dispose();
     _albumArtist.dispose();
+    _producer.dispose();
     _genre.dispose();
     _year.dispose();
     _trackNumber.dispose();
@@ -157,6 +165,7 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
       artist: _artist.text,
       album: _album.text,
       albumArtist: _albumArtist.text,
+      producer: _producer.text,
       genre: _genre.text,
       year: year,
       trackNumber: parsePos(_trackNumber.text),
@@ -276,6 +285,7 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
                         ),
                         _field(_album, 'Альбом', requiredField: true),
                         _field(_albumArtist, 'Артист альбома'),
+                        _field(_producer, 'Продюсер'),
                         LayoutBuilder(
                           builder: (context, constraints) {
                             final wide = constraints.maxWidth >= 480;

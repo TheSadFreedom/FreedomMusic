@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
@@ -15,6 +16,7 @@ class MetadataDraft {
     required this.artist,
     required this.album,
     this.albumArtist,
+    this.producer,
     required this.genre,
     this.year,
     this.trackNumber,
@@ -32,6 +34,7 @@ class MetadataDraft {
       artist: track.artist,
       album: track.album,
       albumArtist: track.albumArtist,
+      producer: track.producer,
       genre: track.genre,
       year: track.year,
       trackNumber: track.trackNumber,
@@ -45,6 +48,7 @@ class MetadataDraft {
   String artist;
   String album;
   String? albumArtist;
+  String? producer;
   String genre;
   int? year;
   int? trackNumber;
@@ -76,6 +80,7 @@ class MetadataWriter {
     final album = draft.album.trim().isEmpty ? 'Unknown' : draft.album.trim();
     final genre = draft.genre.trim().isEmpty ? 'Unknown' : draft.genre.trim();
     final albumArtist = draft.albumArtist?.trim();
+    final producer = draft.producer?.trim();
     final lyrics = draft.lyrics?.trim();
     final year = draft.year;
     final trackNumber = draft.trackNumber;
@@ -103,6 +108,7 @@ class MetadataWriter {
         artist: artist,
         album: album,
         albumArtist: albumArtist,
+        producer: (producer == null || producer.isEmpty) ? null : producer,
         genre: genre,
         year: year,
         trackNumber: trackNumber,
@@ -151,6 +157,7 @@ class MetadataWriter {
       albumArtist: (albumArtist == null || albumArtist.isEmpty)
           ? null
           : albumArtist,
+      producer: (producer == null || producer.isEmpty) ? null : producer,
       genre: genre,
       year: year,
       trackNumber: trackNumber,
@@ -167,6 +174,7 @@ class MetadataWriter {
     required String artist,
     required String album,
     required String? albumArtist,
+    required String? producer,
     required String genre,
     required int? year,
     required int? trackNumber,
@@ -195,6 +203,9 @@ class MetadataWriter {
 
         if (tag is Mp3Metadata) {
           tag.bandOrOrchestra = albumArtist;
+        } else if (tag is VorbisMetadata) {
+          tag.producer =
+              (producer == null || producer.isEmpty) ? [] : [producer];
         }
 
         if (removeCover) {
@@ -209,6 +220,8 @@ class MetadataWriter {
           ]);
         }
       });
+      // The ID3 writer drops TXXX frames, so the producer is appended after.
+      writeMp3ProducerFrame(path, producer);
     });
   }
 
@@ -258,4 +271,118 @@ class MetadataWriter {
     } catch (_) {}
     return newPath;
   }
+}
+
+/// Producer stored as an ID3 `TXXX:PRODUCER` frame or a Vorbis `PRODUCER` tag.
+String? readFileProducer(String path) {
+  try {
+    final tag = readAllMetadata(File(path), getImage: false);
+    return switch (tag) {
+      Mp3Metadata meta => _producerFromMp3(meta),
+      VorbisMetadata meta => _firstNonEmpty(meta.producer),
+      _ => null,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+String? _producerFromMp3(Mp3Metadata meta) {
+  for (final entry in meta.customMetadata.entries) {
+    final key = entry.key.trim().toLowerCase();
+    if (key == 'producer') {
+      final value = entry.value.trim();
+      if (value.isNotEmpty) return value;
+    }
+    if (key == 'tipl' || key == 'ipls') {
+      final fromList = _producerFromInvolved(entry.value);
+      if (fromList != null) return fromList;
+    }
+  }
+  return null;
+}
+
+String? _producerFromInvolved(String raw) {
+  final parts = raw.split(RegExp(r'[\u0000/]'));
+  for (var i = 0; i + 1 < parts.length; i++) {
+    if (parts[i].trim().toLowerCase() != 'producer') continue;
+    final name = parts[i + 1].trim();
+    if (name.isNotEmpty) return name;
+  }
+  return null;
+}
+
+String? _firstNonEmpty(List<String> values) {
+  for (final value in values) {
+    final trimmed = value.trim();
+    if (trimmed.isNotEmpty) return trimmed;
+  }
+  return null;
+}
+
+/// Appends `TXXX:PRODUCER` to an ID3v2.4 tag written by the metadata library.
+void writeMp3ProducerFrame(String path, String? producer) {
+  final value = producer?.trim() ?? '';
+  if (value.isEmpty) return;
+  final file = File(path);
+  final bytes = file.readAsBytesSync();
+  if (bytes.length < 10 ||
+      bytes[0] != 0x49 ||
+      bytes[1] != 0x44 ||
+      bytes[2] != 0x33 ||
+      bytes[3] != 4) {
+    return;
+  }
+  final payloadSize = _readSyncSafe(bytes, 6);
+  final tagEnd = 10 + payloadSize;
+  if (tagEnd <= 10 || tagEnd > bytes.length) return;
+
+  final frame = _txxxFrame('PRODUCER', value);
+  final header = Uint8List.fromList(bytes.sublist(0, 10));
+  _writeSyncSafe(header, 6, payloadSize + frame.length);
+  final out = BytesBuilder(copy: false)
+    ..add(header)
+    ..add(bytes.sublist(10, tagEnd))
+    ..add(frame)
+    ..add(bytes.sublist(tagEnd));
+  file.writeAsBytesSync(out.takeBytes());
+}
+
+int _readSyncSafe(Uint8List data, int offset) {
+  return ((data[offset] & 0x7F) << 21) |
+      ((data[offset + 1] & 0x7F) << 14) |
+      ((data[offset + 2] & 0x7F) << 7) |
+      (data[offset + 3] & 0x7F);
+}
+
+void _writeSyncSafe(Uint8List data, int offset, int value) {
+  data[offset] = (value >> 21) & 0x7F;
+  data[offset + 1] = (value >> 14) & 0x7F;
+  data[offset + 2] = (value >> 7) & 0x7F;
+  data[offset + 3] = value & 0x7F;
+}
+
+Uint8List _syncSafe(int value) {
+  return Uint8List.fromList([
+    (value >> 21) & 0x7F,
+    (value >> 14) & 0x7F,
+    (value >> 7) & 0x7F,
+    value & 0x7F,
+  ]);
+}
+
+Uint8List _txxxFrame(String description, String value) {
+  final payload = BytesBuilder(copy: false)
+    ..addByte(3)
+    ..add(utf8.encode(description))
+    ..addByte(0)
+    ..add(utf8.encode(value));
+  final data = payload.takeBytes();
+  return (BytesBuilder(copy: false)
+        ..add(utf8.encode('TXXX'))
+        ..add(_syncSafe(data.length))
+        ..addByte(0)
+        ..addByte(0)
+        ..add(data))
+      .takeBytes();
 }
