@@ -10,9 +10,11 @@ import '../services/player_service.dart';
 import '../services/settings_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/duration_format.dart';
+import '../utils/playlist_actions.dart';
 import '../utils/trash_actions.dart';
 import '../widgets/track_cover_play.dart';
 import '../widgets/track_meta_links.dart';
+import '../widgets/track_overflow_menu.dart';
 
 enum _RankDelta { up, down, same, newEntry }
 
@@ -37,6 +39,7 @@ class ChartScreen extends StatefulWidget {
 
 class _ChartScreenState extends State<ChartScreen> {
   Future<List<_ChartRow>>? _future;
+  bool _refreshing = false;
 
   @override
   void didChangeDependencies() {
@@ -73,7 +76,12 @@ class _ChartScreenState extends State<ChartScreen> {
   }
 
   void _reload() {
-    setState(() => _future = _load());
+    setState(() {
+      _refreshing = true;
+      _future = _load().whenComplete(() {
+        if (mounted) setState(() => _refreshing = false);
+      });
+    });
   }
 
   @override
@@ -85,14 +93,30 @@ class _ChartScreenState extends State<ChartScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-          child: Text(
-            'Чарт',
-            style: GoogleFonts.syne(
-              color: AppTheme.paper,
-              fontSize: 28,
-              fontWeight: FontWeight.w800,
-            ),
+          padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Чарт',
+                  style: GoogleFonts.syne(
+                    color: AppTheme.paper,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: _refreshing ? null : _reload,
+                icon: _refreshing
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh_rounded, color: AppTheme.paper),
+              ),
+            ],
           ),
         ),
         Expanded(
@@ -224,24 +248,23 @@ class _ChartTrackRowState extends State<_ChartTrackRow> {
                     ),
                   ),
                 ],
-                PopupMenuButton<String>(
-                  tooltip: 'Действия',
-                  icon: const Icon(Icons.more_vert, size: 20),
-                  onSelected: (value) async {
-                    if (value == 'edit') {
-                      widget.onEdit();
-                    } else if (value == 'trash') {
-                      await moveTrackToTrash(context, track);
-                    }
-                  },
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(
-                      value: 'edit',
-                      child: Text('Метаданные'),
+                TrackOverflowMenu(
+                  actions: [
+                    TrackMenuAction(
+                      icon: Icons.edit_outlined,
+                      label: 'Метаданные',
+                      onSelected: widget.onEdit,
                     ),
-                    PopupMenuItem(
-                      value: 'trash',
-                      child: Text('В корзину'),
+                    TrackMenuAction(
+                      icon: Icons.queue_music_rounded,
+                      label: 'В плейлист',
+                      onSelected: () => addTrackToPlaylist(context, track),
+                    ),
+                    TrackMenuAction(
+                      icon: Icons.delete_outline_rounded,
+                      label: 'В корзину',
+                      destructive: true,
+                      onSelected: () => moveTrackToTrash(context, track),
                     ),
                   ],
                 ),

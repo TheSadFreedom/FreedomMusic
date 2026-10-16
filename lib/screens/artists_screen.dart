@@ -61,7 +61,10 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
   ArtistSort _sort = ArtistSort.chart;
   Map<String, int> _playCounts = {};
   bool _loadingCounts = true;
+  bool _refreshing = false;
   final _number = NumberFormat('#,###', 'ru');
+  final _searchController = TextEditingController();
+  String _query = '';
 
   @override
   void initState() {
@@ -69,17 +72,29 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadPlayCounts());
   }
 
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadPlayCounts() async {
+    if (_refreshing) return;
+    setState(() => _refreshing = true);
     final library = context.read<LibraryService>();
     final counts = await library.playCountsAllTime();
     if (!mounted) return;
     setState(() {
       _playCounts = counts;
       _loadingCounts = false;
+      _refreshing = false;
     });
   }
 
-  List<_ArtistRow> _sortedRows(Map<String, List<Track>> artists) {
+  List<_ArtistRow> _sortedRows(
+    Map<String, List<Track>> artists,
+    LibraryService library,
+  ) {
     final rows = artists.entries.map((e) {
       final plays = e.value.fold<int>(
         0,
@@ -104,7 +119,7 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
       for (var i = 0; i < byPlays.length; i++) byPlays[i].name: i + 1,
     };
 
-    final ranked = rows
+    var ranked = rows
         .map(
           (r) => _ArtistRow(
             name: r.name,
@@ -114,6 +129,13 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
           ),
         )
         .toList();
+
+    final q = _query.trim();
+    if (q.isNotEmpty) {
+      ranked = ranked
+          .where((r) => library.artistCardMatchesQuery(r.name, q))
+          .toList();
+    }
 
     switch (_sort) {
       case ArtistSort.chart:
@@ -152,65 +174,137 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
       );
     }
 
-    final rows = _sortedRows(artists);
+    final rows = _sortedRows(artists, library);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         ScreenTitle(
           title: 'Артисты',
-          trailing: PillSegmented<ArtistSort>(
-            segments: [
-              for (final s in ArtistSort.values)
-                PillSegment(value: s, label: s.label),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                onPressed: _refreshing ? null : _loadPlayCounts,
+                visualDensity: VisualDensity.compact,
+                icon: _refreshing
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh_rounded, color: AppTheme.paper),
+              ),
+              PillSegmented<ArtistSort>(
+                segments: [
+                  for (final s in ArtistSort.values)
+                    PillSegment(value: s, label: s.label),
+                ],
+                selected: _sort,
+                onChanged: (s) => setState(() => _sort = s),
+              ),
             ],
-            selected: _sort,
-            onChanged: (s) => setState(() => _sort = s),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: TextField(
+            controller: _searchController,
+            onChanged: (v) => setState(() => _query = v),
+            style: GoogleFonts.figtree(
+              color: AppTheme.paper,
+              fontSize: 15,
+              fontWeight: FontWeight.w500,
+            ),
+            cursorColor: AppTheme.lime,
+            decoration: InputDecoration(
+              hintText: 'Поиск артиста',
+              hintStyle: GoogleFonts.figtree(color: AppTheme.paperMuted),
+              prefixIcon: const Icon(
+                Icons.search_rounded,
+                color: AppTheme.paperMuted,
+              ),
+              suffixIcon: _query.isEmpty
+                  ? null
+                  : IconButton(
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() => _query = '');
+                      },
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        color: AppTheme.paperMuted,
+                      ),
+                    ),
+              filled: true,
+              fillColor: Colors.white.withValues(alpha: 0.06),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 8,
+                vertical: 12,
+              ),
+            ),
           ),
         ),
         Expanded(
           child: _loadingCounts && _sort == ArtistSort.chart
               ? const Center(child: CircularProgressIndicator())
-              : LayoutBuilder(
-                  builder: (context, constraints) {
-                    final count = _crossAxisCount(constraints.maxWidth);
-                    return GridView.builder(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: count,
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 18,
-                        childAspectRatio: 0.72,
+              : rows.isEmpty
+                  ? Center(
+                      child: Text(
+                        _query.trim().isEmpty
+                            ? 'Нет артистов'
+                            : 'Ничего не найдено',
+                        style: GoogleFonts.figtree(
+                          color: AppTheme.paperMuted,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                      itemCount: rows.length,
-                      itemBuilder: (context, index) {
-                        final row = rows[index];
-                        final photo = library.artistPhotoPath(row.name) ??
-                            row.coverFromTracks();
-                        return _ArtistGridTile(
-                          row: row,
-                          photoPath: photo,
-                          tracksLabel: _number.format(row.trackCount),
-                          playsLabel: _number.format(row.playCount),
-                          onTap: () async {
-                            await Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => ArtistDetailScreen(
-                                  artist: row.name,
-                                  tracks: row.tracks,
-                                  playCount: row.playCount,
-                                  chartRank: row.rank,
-                                  trackPlayCounts: _playCounts,
-                                ),
-                              ),
+                    )
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        final count = _crossAxisCount(constraints.maxWidth);
+                        return GridView.builder(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: count,
+                            crossAxisSpacing: 12,
+                            mainAxisSpacing: 18,
+                            childAspectRatio: 0.72,
+                          ),
+                          itemCount: rows.length,
+                          itemBuilder: (context, index) {
+                            final row = rows[index];
+                            final photo = library.artistPhotoPath(row.name) ??
+                                row.coverFromTracks();
+                            return _ArtistGridTile(
+                              row: row,
+                              photoPath: photo,
+                              tracksLabel: _number.format(row.trackCount),
+                              playsLabel: _number.format(row.playCount),
+                              onTap: () async {
+                                await Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => ArtistDetailScreen(
+                                      artist: row.name,
+                                      tracks: row.tracks,
+                                      playCount: row.playCount,
+                                      chartRank: row.rank,
+                                      trackPlayCounts: _playCounts,
+                                    ),
+                                  ),
+                                );
+                                await _loadPlayCounts();
+                              },
                             );
-                            await _loadPlayCounts();
                           },
                         );
                       },
-                    );
-                  },
-                ),
+                    ),
         ),
       ],
     );
@@ -265,6 +359,7 @@ class _ArtistGridTile extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
+        mouseCursor: SystemMouseCursors.click,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4),
