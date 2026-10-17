@@ -64,12 +64,65 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
     return live.isEmpty ? widget.tracks : live;
   }
 
-  ArtistReleaseGroups _producerGroups(List<Track> tracks) {
-    final releases = buildReleases(tracks);
-    return ArtistReleaseGroups(
-      albums: releases.where((r) => r.kind == ReleaseKind.album).toList(),
-      singles: releases.where((r) => r.kind == ReleaseKind.single).toList(),
-      appearances: const [],
+  List<_ProducerCollab> _collaborations(
+    LibraryService library,
+    List<Track> tracks,
+  ) {
+    final self = widget.artist.toLowerCase();
+    final grouped = <String, List<Track>>{};
+    final labels = <String, String>{};
+    for (final track in tracks) {
+      final seen = <String>{};
+      for (final name in track.artists) {
+        final card = library.artistCardName(name).trim();
+        final key = card.toLowerCase();
+        if (key.isEmpty || key == 'unknown' || key == self || !seen.add(key)) {
+          continue;
+        }
+        labels.putIfAbsent(key, () => card);
+        final bucket = grouped.putIfAbsent(key, () => []);
+        if (!bucket.any((existing) => existing.trackKey == track.trackKey)) {
+          bucket.add(track);
+        }
+      }
+    }
+
+    final collabs = <_ProducerCollab>[];
+    for (final entry in grouped.entries) {
+      final artist = labels[entry.key]!;
+      final list = _popularOf(entry.value);
+      String? cover = library.artistPhotoPath(artist);
+      if (cover == null) {
+        for (final track in list) {
+          final path = track.coverPath;
+          if (path != null && path.isNotEmpty) {
+            cover = path;
+            break;
+          }
+        }
+      }
+      collabs.add(
+        _ProducerCollab(artist: artist, tracks: list, coverPath: cover),
+      );
+    }
+    collabs.sort((a, b) {
+      final byCount = b.tracks.length.compareTo(a.tracks.length);
+      if (byCount != 0) return byCount;
+      return a.artist.toLowerCase().compareTo(b.artist.toLowerCase());
+    });
+    return collabs;
+  }
+
+  void _openCollab(BuildContext context, _ProducerCollab collab) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _ArtistAllTracksScreen(
+          artist: collab.artist,
+          title: collab.artist,
+          tracks: collab.tracks,
+          trackPlayCounts: widget.trackPlayCounts,
+        ),
+      ),
     );
   }
 
@@ -257,8 +310,11 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
     final library = context.watch<LibraryService>();
     final tracks = _liveTracks(library);
     final popular = _popularOf(tracks);
+    final collabs = widget.byProducer
+        ? _collaborations(library, tracks)
+        : const <_ProducerCollab>[];
     final groups = widget.byProducer
-        ? _producerGroups(tracks)
+        ? null
         : groupArtistReleases(
             artistTracks: tracks,
             libraryTracks: library.tracks,
@@ -267,9 +323,9 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                 widget.artist.toLowerCase(),
             cardName: library.artistCardName,
           );
-    final albums = groups.albums;
-    final singles = groups.singles;
-    final appearances = groups.appearances;
+    final albums = groups?.albums ?? const <ArtistRelease>[];
+    final singles = groups?.singles ?? const <ArtistRelease>[];
+    final appearances = groups?.appearances ?? const <ArtistRelease>[];
     final photoPath = _resolvePhoto(library, popular);
 
     return Scaffold(
@@ -299,41 +355,111 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
             onMerge: widget.byProducer ? null : () => _mergeArtist(context),
             roleLabel: widget.byProducer ? 'Продюсер' : 'Артист',
           )),
-          if (popular.isNotEmpty) ...[
-            SliverToBoxAdapter(
-              child: _SectionTitle(
-                title: 'Популярные треки',
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => _ArtistAllTracksScreen(
-                        artist: widget.artist,
-                        tracks: popular,
-                        trackPlayCounts: widget.trackPlayCounts,
+          if (widget.byProducer) ...[
+            if (popular.isNotEmpty) ...[
+              SliverToBoxAdapter(
+                child: _SectionTitle(
+                  title: 'Популярные треки',
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => _ArtistAllTracksScreen(
+                          artist: widget.artist,
+                          tracks: popular,
+                          trackPlayCounts: widget.trackPlayCounts,
+                        ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
-            ),
-            SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final track = popular[index];
-                  final plays = widget.trackPlayCounts[track.trackKey] ?? 0;
-                  return _PopularTrackRow(
-                    index: index + 1,
-                    track: track,
-                    plays: plays,
-                    onTap: () =>
-                        player.playTracks(popular, startIndex: index),
-                  );
-                },
-                childCount: popular.length.clamp(0, 10),
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final track = popular[index];
+                    final plays = widget.trackPlayCounts[track.trackKey] ?? 0;
+                    return _PopularTrackRow(
+                      index: index + 1,
+                      track: track,
+                      plays: plays,
+                      onTap: () =>
+                          player.playTracks(popular, startIndex: index),
+                    );
+                  },
+                  childCount: popular.length.clamp(0, 10),
+                ),
               ),
-            ),
-          ],
-          if (albums.isNotEmpty) ...[
+            ],
+            if (collabs.isEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+                  child: Text(
+                    'Нет треков с другими артистами.',
+                    style: GoogleFonts.figtree(color: AppTheme.paperMuted),
+                  ),
+                ),
+              )
+            else ...[
+              SliverToBoxAdapter(
+                child: _SectionTitle(
+                  title: 'Сотрудничество',
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => _CollabGridScreen(
+                          producer: widget.artist,
+                          collabs: collabs,
+                          onOpen: (collab) => _openCollab(context, collab),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: _CollabCarousel(
+                  collabs: collabs,
+                  onOpen: (collab) => _openCollab(context, collab),
+                ),
+              ),
+            ],
+          ] else ...[
+            if (popular.isNotEmpty) ...[
+              SliverToBoxAdapter(
+                child: _SectionTitle(
+                  title: 'Популярные треки',
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => _ArtistAllTracksScreen(
+                          artist: widget.artist,
+                          tracks: popular,
+                          trackPlayCounts: widget.trackPlayCounts,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final track = popular[index];
+                    final plays = widget.trackPlayCounts[track.trackKey] ?? 0;
+                    return _PopularTrackRow(
+                      index: index + 1,
+                      track: track,
+                      plays: plays,
+                      onTap: () =>
+                          player.playTracks(popular, startIndex: index),
+                    );
+                  },
+                  childCount: popular.length.clamp(0, 10),
+                ),
+              ),
+            ],
+            if (albums.isNotEmpty) ...[
             const SliverToBoxAdapter(child: SizedBox(height: 12)),
             SliverToBoxAdapter(
               child: _SectionTitle(
@@ -413,6 +539,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                 listenMsByKey: _listenMs,
               ),
             ),
+          ],
           ],
           const SliverToBoxAdapter(child: SizedBox(height: 48)),
         ],
@@ -759,6 +886,270 @@ class _PopularTrackRow extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ProducerCollab {
+  const _ProducerCollab({
+    required this.artist,
+    required this.tracks,
+    this.coverPath,
+  });
+
+  final String artist;
+  final List<Track> tracks;
+  final String? coverPath;
+}
+
+class _CollabCarousel extends StatefulWidget {
+  const _CollabCarousel({required this.collabs, required this.onOpen});
+
+  final List<_ProducerCollab> collabs;
+  final ValueChanged<_ProducerCollab> onOpen;
+
+  @override
+  State<_CollabCarousel> createState() => _CollabCarouselState();
+}
+
+class _CollabCarouselState extends State<_CollabCarousel> {
+  final _controller = ScrollController();
+  bool _canBack = false;
+  bool _canForward = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_syncArrows);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncArrows());
+  }
+
+  @override
+  void didUpdateWidget(covariant _CollabCarousel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncArrows());
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_syncArrows);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _syncArrows() {
+    if (!_controller.hasClients) return;
+    final pos = _controller.position;
+    final back = pos.pixels > 4;
+    final forward = pos.pixels < pos.maxScrollExtent - 4;
+    if (back != _canBack || forward != _canForward) {
+      setState(() {
+        _canBack = back;
+        _canForward = forward;
+      });
+    }
+  }
+
+  void _page(bool forward) {
+    if (!_controller.hasClients) return;
+    final delta = forward ? 320.0 : -320.0;
+    final target = (_controller.offset + delta)
+        .clamp(0.0, _controller.position.maxScrollExtent);
+    _controller.animateTo(
+      target,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const coverSize = 148.0;
+    final arrowTop = (coverSize - 40) / 2;
+    return SizedBox(
+      height: 236,
+      child: Stack(
+        children: [
+          NotificationListener<ScrollMetricsNotification>(
+            onNotification: (_) {
+              _syncArrows();
+              return false;
+            },
+            child: ListView.separated(
+              controller: _controller,
+              physics: const NeverScrollableScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              scrollDirection: Axis.horizontal,
+              itemCount: widget.collabs.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 14),
+              itemBuilder: (context, index) {
+                final collab = widget.collabs[index];
+                return _CollabCard(
+                  collab: collab,
+                  onTap: () => widget.onOpen(collab),
+                );
+              },
+            ),
+          ),
+          if (_canBack)
+            Positioned(
+              left: 4,
+              top: arrowTop,
+              child: _CarouselArrow(
+                forward: false,
+                onPressed: () => _page(false),
+              ),
+            ),
+          if (_canForward)
+            Positioned(
+              right: 4,
+              top: arrowTop,
+              child: _CarouselArrow(
+                forward: true,
+                onPressed: () => _page(true),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CollabCard extends StatelessWidget {
+  const _CollabCard({
+    required this.collab,
+    required this.onTap,
+    this.width = 148,
+  });
+
+  final _ProducerCollab collab;
+  final VoidCallback onTap;
+  final double? width;
+
+  @override
+  Widget build(BuildContext context) {
+    final path = collab.coverPath;
+    Widget cover = const ColoredBox(
+      color: AppTheme.inkLift,
+      child: Icon(Icons.person_rounded, color: AppTheme.mossBright, size: 40),
+    );
+    if (path != null && File(path).existsSync()) {
+      cover = Image.file(File(path), fit: BoxFit.cover);
+    }
+
+    return InkWell(
+      mouseCursor: SystemMouseCursors.click,
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        width: width,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    blurRadius: 14,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: AspectRatio(aspectRatio: 1, child: cover),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              collab.artist,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.figtree(
+                color: AppTheme.paper,
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+                height: 1.2,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              'Плейлист',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.figtree(
+                color: AppTheme.paperMuted,
+                fontSize: 12,
+              ),
+            ),
+            Text(
+              _trackCountLabel(collab.tracks.length),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.figtree(
+                color: AppTheme.paperMuted,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CollabGridScreen extends StatelessWidget {
+  const _CollabGridScreen({
+    required this.producer,
+    required this.collabs,
+    required this.onOpen,
+  });
+
+  final String producer;
+  final List<_ProducerCollab> collabs;
+  final ValueChanged<_ProducerCollab> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppTheme.ink,
+      appBar: AppBar(
+        backgroundColor: AppTheme.ink,
+        title: Text(
+          'Сотрудничество $producer',
+          style: GoogleFonts.syne(fontWeight: FontWeight.w700),
+        ),
+      ),
+      body: GridView.builder(
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 48),
+        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+          maxCrossAxisExtent: 180,
+          mainAxisSpacing: 18,
+          crossAxisSpacing: 14,
+          childAspectRatio: 0.62,
+        ),
+        itemCount: collabs.length,
+        itemBuilder: (context, index) {
+          final collab = collabs[index];
+          return _CollabCard(
+            collab: collab,
+            width: null,
+            onTap: () => onOpen(collab),
+          );
+        },
+      ),
+    );
+  }
+}
+
+String _trackCountLabel(int count) {
+  final mod10 = count % 10;
+  final mod100 = count % 100;
+  if (mod10 == 1 && mod100 != 11) return '$count трек';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return '$count трека';
+  }
+  return '$count треков';
 }
 
 class _ReleaseCarousel extends StatefulWidget {
@@ -1205,11 +1596,13 @@ class _ArtistAllTracksScreen extends StatelessWidget {
     required this.artist,
     required this.tracks,
     required this.trackPlayCounts,
+    this.title = 'Все треки',
   });
 
   final String artist;
   final List<Track> tracks;
   final Map<String, int> trackPlayCounts;
+  final String title;
 
   @override
   Widget build(BuildContext context) {
@@ -1220,7 +1613,7 @@ class _ArtistAllTracksScreen extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: AppTheme.ink,
         title: Text(
-          'Все треки',
+          title,
           style: GoogleFonts.syne(fontWeight: FontWeight.w700),
         ),
         actions: [
