@@ -36,13 +36,24 @@ Future<void> openAlbumForTrack(BuildContext context, Track track) async {
   );
 }
 
-Future<void> openArtistFromTrack(BuildContext context, Track track) async {
-  final artists = track.artists;
-  if (artists.isEmpty) return;
+Future<void> openArtistFromTrack(BuildContext context, Track track) {
+  return openArtists(context, track.artists);
+}
+
+/// Opens the only artist immediately. Several names ask which card to open.
+Future<void> openArtists(BuildContext context, List<String> artists) async {
+  final names = <String>[];
+  final seen = <String>{};
+  for (final raw in artists) {
+    final name = raw.trim();
+    if (name.isEmpty || name.toLowerCase() == 'unknown') continue;
+    if (seen.add(name.toLowerCase())) names.add(name);
+  }
+  if (names.isEmpty) return;
 
   String? chosen;
-  if (artists.length == 1) {
-    chosen = artists.first;
+  if (names.length == 1) {
+    chosen = names.first;
   } else {
     final library = context.read<LibraryService>();
     final byArtist = library.tracksByArtist();
@@ -50,7 +61,7 @@ Future<void> openArtistFromTrack(BuildContext context, Track track) async {
       context: context,
       title: 'Выберите артиста',
       buildChildren: (sheetCtx) => [
-        for (final name in artists)
+        for (final name in names)
           SheetRow(
             title: name,
             subtitle: _artistTracksSubtitle(library, byArtist, name),

@@ -39,34 +39,17 @@ class _ReleaseDetailScreenState extends State<ReleaseDetailScreen> {
   String get _kindLabel =>
       widget.release.kind == ReleaseKind.single ? 'Сингл' : 'Альбом';
 
-  String get _artistsLine {
-    final names = <String>{};
-    for (final t in widget.release.tracks) {
-      for (final a in t.artists) {
-        names.add(a);
-      }
+  List<String> get _releaseArtists {
+    final names = releaseAlbumArtists(widget.release);
+    if (names.isNotEmpty) return names;
+    final fallback = widget.primaryArtist.trim();
+    if (fallback.isEmpty || fallback.toLowerCase() == 'unknown') {
+      return const [];
     }
-    if (names.isEmpty) return widget.primaryArtist;
-    final list = names.toList()
-      ..sort((a, b) {
-        if (a == widget.primaryArtist) return -1;
-        if (b == widget.primaryArtist) return 1;
-        return a.toLowerCase().compareTo(b.toLowerCase());
-      });
-    if (list.length == 1) return list.first;
-    if (list.length == 2) return '${list[0]}, ${list[1]}';
-    return '${list[0]}, ${list[1]} и ещё ${list.length - 2} ${_artistsWord(list.length - 2)}';
+    return [fallback];
   }
 
-  String _artistsWord(int n) {
-    final mod10 = n % 10;
-    final mod100 = n % 100;
-    if (mod10 == 1 && mod100 != 11) return 'артист';
-    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
-      return 'артиста';
-    }
-    return 'артистов';
-  }
+  String get _artistsLine => _releaseArtists.join(', ');
 
   String _tracksWord(int n) {
     final mod10 = n % 10;
@@ -149,9 +132,10 @@ class _ReleaseDetailScreenState extends State<ReleaseDetailScreen> {
                                     kindLabel: _kindLabel,
                                     title: release.title,
                                     artistsLine: _artistsLine,
-                                    primaryArtist: widget.primaryArtist,
                                     year: release.year,
                                     listenCount: listens,
+                                    onArtists: () =>
+                                        openArtists(context, _releaseArtists),
                                     onListen: () => player.playTracks(tracks),
                                     onShuffle: () => player.playTracks(
                                       tracks,
@@ -172,10 +156,11 @@ class _ReleaseDetailScreenState extends State<ReleaseDetailScreen> {
                                   kindLabel: _kindLabel,
                                   title: release.title,
                                   artistsLine: _artistsLine,
-                                  primaryArtist: widget.primaryArtist,
                                   year: release.year,
                                   listenCount: listens,
                                   centered: true,
+                                  onArtists: () =>
+                                      openArtists(context, _releaseArtists),
                                   onListen: () => player.playTracks(tracks),
                                   onShuffle: () => player.playTracks(
                                     tracks,
@@ -273,9 +258,9 @@ class _Meta extends StatelessWidget {
     required this.kindLabel,
     required this.title,
     required this.artistsLine,
-    required this.primaryArtist,
     required this.year,
     required this.listenCount,
+    required this.onArtists,
     required this.onListen,
     required this.onShuffle,
     this.centered = false,
@@ -284,9 +269,9 @@ class _Meta extends StatelessWidget {
   final String kindLabel;
   final String title;
   final String artistsLine;
-  final String primaryArtist;
   final int? year;
   final int listenCount;
+  final VoidCallback onArtists;
   final VoidCallback onListen;
   final VoidCallback onShuffle;
   final bool centered;
@@ -324,7 +309,7 @@ class _Meta extends StatelessWidget {
         MouseRegion(
           cursor: SystemMouseCursors.click,
           child: GestureDetector(
-            onTap: () => openArtistPage(context, primaryArtist),
+            onTap: onArtists,
             child: Text.rich(
               TextSpan(
                 style: GoogleFonts.figtree(fontSize: 15, height: 1.35),
@@ -410,7 +395,6 @@ class _TrackRow extends StatelessWidget {
                   color: AppTheme.paperMuted,
                   fontSize: 13,
                 ),
-                showArtist: false,
               ),
             ),
             Text(

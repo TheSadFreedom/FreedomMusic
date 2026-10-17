@@ -64,6 +64,15 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
     return live.isEmpty ? widget.tracks : live;
   }
 
+  ArtistReleaseGroups _producerGroups(List<Track> tracks) {
+    final releases = buildReleases(tracks);
+    return ArtistReleaseGroups(
+      albums: releases.where((r) => r.kind == ReleaseKind.album).toList(),
+      singles: releases.where((r) => r.kind == ReleaseKind.single).toList(),
+      appearances: const [],
+    );
+  }
+
   List<Track> _popularOf(List<Track> tracks) {
     return List<Track>.from(tracks)
       ..sort((a, b) {
@@ -248,11 +257,19 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
     final library = context.watch<LibraryService>();
     final tracks = _liveTracks(library);
     final popular = _popularOf(tracks);
-    final releases = buildReleases(tracks);
-    final albums = releases.where((r) => r.kind == ReleaseKind.album).toList()
-      ..sort(compareReleasesByYearDesc);
-    final singles = releases.where((r) => r.kind == ReleaseKind.single).toList()
-      ..sort(compareReleasesByYearDesc);
+    final groups = widget.byProducer
+        ? _producerGroups(tracks)
+        : groupArtistReleases(
+            artistTracks: tracks,
+            libraryTracks: library.tracks,
+            isThisArtist: (name) =>
+                library.artistCardName(name).toLowerCase() ==
+                widget.artist.toLowerCase(),
+            cardName: library.artistCardName,
+          );
+    final albums = groups.albums;
+    final singles = groups.singles;
+    final appearances = groups.appearances;
     final photoPath = _resolvePhoto(library, popular);
 
     return Scaffold(
@@ -365,6 +382,33 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
             SliverToBoxAdapter(
               child: _ReleaseCarousel(
                 releases: singles,
+                artist: widget.artist,
+                listenMsByKey: _listenMs,
+              ),
+            ),
+          ],
+          if (appearances.isNotEmpty) ...[
+            const SliverToBoxAdapter(child: SizedBox(height: 8)),
+            SliverToBoxAdapter(
+              child: _SectionTitle(
+                title: 'Участие в релизах',
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => _ArtistAllReleasesScreen(
+                        artist: widget.artist,
+                        sectionTitle: 'Участие в релизах',
+                        releases: appearances,
+                        listenMsByKey: _listenMs,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: _ReleaseCarousel(
+                releases: appearances,
                 artist: widget.artist,
                 listenMsByKey: _listenMs,
               ),
@@ -785,7 +829,7 @@ class _ReleaseCarouselState extends State<_ReleaseCarousel> {
     final arrowTop = (_coverSize - _arrowSize) / 2;
 
     return SizedBox(
-      height: 236,
+      height: 252,
       child: Stack(
         children: [
           NotificationListener<ScrollMetricsNotification>(
@@ -802,16 +846,17 @@ class _ReleaseCarouselState extends State<_ReleaseCarousel> {
               separatorBuilder: (_, _) => const SizedBox(width: 14),
               itemBuilder: (context, index) {
                 final release = widget.releases[index];
+                final credit = _releaseArtistLine(release, widget.artist);
                 return _ReleaseCard(
                   release: release,
-                  artist: widget.artist,
+                  artist: credit,
                   listenCount: releaseListenCount(release, widget.listenMsByKey),
                   onTap: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => ReleaseDetailScreen(
                           release: release,
-                          primaryArtist: widget.artist,
+                          primaryArtist: credit,
                         ),
                       ),
                     );
@@ -878,6 +923,14 @@ class _CarouselArrow extends StatelessWidget {
       ),
     );
   }
+}
+
+String _releaseArtistLine(ArtistRelease release, String pageArtist) {
+  final names = releaseAlbumArtists(release);
+  if (names.isNotEmpty) return names.join(', ');
+  final credit = release.credit?.trim();
+  if (credit != null && credit.isNotEmpty) return credit;
+  return pageArtist;
 }
 
 class _ReleaseCard extends StatelessWidget {
@@ -949,7 +1002,7 @@ class _ReleaseCard extends StatelessWidget {
             const SizedBox(height: 2),
             Text(
               artist,
-              maxLines: 1,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: GoogleFonts.figtree(
                 color: AppTheme.paperMuted,
@@ -990,12 +1043,12 @@ class _ArtistAllReleasesScreen extends StatelessWidget {
   final List<ArtistRelease> releases;
   final Map<String, int> listenMsByKey;
 
-  void _open(BuildContext context, ArtistRelease release) {
+  void _open(BuildContext context, ArtistRelease release, String credit) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ReleaseDetailScreen(
           release: release,
-          primaryArtist: artist,
+          primaryArtist: credit,
         ),
       ),
     );
@@ -1023,12 +1076,13 @@ class _ArtistAllReleasesScreen extends StatelessWidget {
         itemCount: releases.length,
         itemBuilder: (context, index) {
           final release = releases[index];
+          final credit = _releaseArtistLine(release, artist);
           return _ReleaseCard(
             release: release,
-            artist: artist,
+            artist: credit,
             width: null,
             listenCount: releaseListenCount(release, listenMsByKey),
-            onTap: () => _open(context, release),
+            onTap: () => _open(context, release, credit),
           );
         },
       ),
