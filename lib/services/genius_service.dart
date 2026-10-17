@@ -9,6 +9,7 @@ import '../data/track_key.dart';
 class GeniusHit {
   const GeniusHit({
     this.album,
+    this.albumArtist,
     this.year,
     this.genre,
     this.trackNumber,
@@ -19,6 +20,7 @@ class GeniusHit {
   });
 
   final String? album;
+  final String? albumArtist;
   final int? year;
   final String? genre;
   final int? trackNumber;
@@ -29,6 +31,7 @@ class GeniusHit {
 
   bool get hasMeta =>
       (album != null && album!.isNotEmpty) ||
+      (albumArtist != null && albumArtist!.isNotEmpty) ||
       year != null ||
       (genre != null && genre!.isNotEmpty) ||
       trackNumber != null ||
@@ -134,6 +137,7 @@ class GeniusService {
     final tags = entities['tags'];
 
     String? albumName;
+    String? albumArtist;
     int? trackTotal;
     final albumId = song['album'];
     if (albums is Map && albumId != null) {
@@ -145,6 +149,7 @@ class GeniusService {
         if (tracklist is List && tracklist.isNotEmpty) {
           trackTotal = tracklist.length;
         }
+        albumArtist = _albumArtistName(album, artists);
       }
     }
 
@@ -197,6 +202,7 @@ class GeniusService {
     }
 
     if (albumName == null &&
+        albumArtist == null &&
         year == null &&
         genre == null &&
         trackNumber == null &&
@@ -206,6 +212,7 @@ class GeniusService {
     }
     return GeniusHit(
       album: albumName,
+      albumArtist: albumArtist,
       year: year,
       genre: genre,
       trackNumber: trackNumber,
@@ -214,6 +221,28 @@ class GeniusService {
       producer: producer,
       lyrics: lyrics,
     );
+  }
+
+  String? _albumArtistName(Map album, Object? artists) {
+    final ids = <dynamic>[];
+    final primary = album['primaryArtists'];
+    if (primary is List && primary.isNotEmpty) {
+      ids.addAll(primary);
+    } else if (album['artist'] != null) {
+      ids.add(album['artist']);
+    }
+    final names = <String>[];
+    if (artists is Map) {
+      for (final id in ids) {
+        final artist = artists['$id'];
+        if (artist is! Map) continue;
+        final name = _withoutTranslation('${artist['name'] ?? ''}');
+        if (name.isNotEmpty) names.add(name);
+      }
+    }
+    if (names.isNotEmpty) return names.join(', ');
+    final fallback = _withoutTranslation('${album['primaryArtistNames'] ?? ''}');
+    return fallback.isEmpty ? null : fallback;
   }
 
   Map<String, dynamic>? _preloadedState(String html) {

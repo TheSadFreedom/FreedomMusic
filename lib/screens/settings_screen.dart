@@ -289,7 +289,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               icon: Icons.travel_explore_rounded,
                               title: 'Поиск пустых метаданных',
                               subtitle:
-                                  'Без текста и жанра. Альбом, год, номер, продюсер.',
+                                  'Без текста и жанра. Альбом, артист альбома, год, номер, продюсер.',
                               onPressed: busy
                                   ? null
                                   : () => library.fillEmptyMetadata(),
@@ -822,7 +822,7 @@ class _ActionTile extends StatelessWidget {
 class _JobLog extends StatefulWidget {
   const _JobLog({required this.lines});
 
-  final List<String> lines;
+  final List<JobLogEntry> lines;
 
   @override
   State<_JobLog> createState() => _JobLogState();
@@ -830,6 +830,7 @@ class _JobLog extends StatefulWidget {
 
 class _JobLogState extends State<_JobLog> {
   final _scroll = ScrollController();
+  static final _clock = DateFormat('HH:mm:ss');
 
   @override
   void didUpdateWidget(covariant _JobLog oldWidget) {
@@ -850,8 +851,20 @@ class _JobLogState extends State<_JobLog> {
     super.dispose();
   }
 
+  String _errorCount(int count) {
+    final mod10 = count % 10;
+    final mod100 = count % 100;
+    if (mod10 == 1 && mod100 != 11) return '$count ошибка';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+      return '$count ошибки';
+    }
+    return '$count ошибок';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final written = widget.lines.where((entry) => entry.ok).length;
+    final failed = widget.lines.length - written;
     return DecoratedBox(
       decoration: BoxDecoration(
         color: AppTheme.ink.withValues(alpha: 0.55),
@@ -863,40 +876,190 @@ class _JobLogState extends State<_JobLog> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              'Журнал',
-              style: GoogleFonts.figtree(
-                color: AppTheme.paper,
-                fontWeight: FontWeight.w700,
-                fontSize: 13,
-              ),
+            Row(
+              children: [
+                Text(
+                  'Журнал',
+                  style: GoogleFonts.figtree(
+                    color: AppTheme.paper,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  failed == 0
+                      ? 'записано $written'
+                      : 'записано $written · ${_errorCount(failed)}',
+                  style: GoogleFonts.figtree(
+                    color: AppTheme.paperMuted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
             ),
             const SizedBox(height: 8),
             SizedBox(
-              height: 220,
+              height: 320,
               child: Scrollbar(
                 controller: _scroll,
                 thumbVisibility: true,
-                child: ListView.builder(
+                child: ListView.separated(
                   controller: _scroll,
                   itemCount: widget.lines.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 6),
                   itemBuilder: (context, index) {
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 6, right: 8),
-                      child: Text(
-                        widget.lines[index],
-                        style: GoogleFonts.figtree(
-                          color: AppTheme.paperMuted,
-                          fontSize: 12.5,
-                          height: 1.35,
-                        ),
-                      ),
+                    return _JobLogRow(
+                      entry: widget.lines[index],
+                      time: _clock.format(widget.lines[index].at),
                     );
                   },
                 ),
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _JobLogRow extends StatelessWidget {
+  const _JobLogRow({required this.entry, required this.time});
+
+  final JobLogEntry entry;
+  final String time;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = entry.ok ? AppTheme.lime : const Color(0xFFFF8A80);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppTheme.inkLift.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              width: 3,
+              decoration: BoxDecoration(
+                color: accent,
+                borderRadius: const BorderRadius.horizontal(
+                  left: Radius.circular(10),
+                ),
+              ),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          time,
+                          style: GoogleFonts.figtree(
+                            color: AppTheme.paperMuted,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            entry.artist,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.figtree(
+                              color: AppTheme.paper,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      entry.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.figtree(
+                        color: AppTheme.paper.withValues(alpha: 0.86),
+                        fontSize: 12.5,
+                        height: 1.3,
+                      ),
+                    ),
+                    if (entry.error != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        entry.error!,
+                        style: GoogleFonts.figtree(
+                          color: const Color(0xFFFF8A80),
+                          fontSize: 12,
+                          height: 1.3,
+                        ),
+                      ),
+                    ],
+                    if (entry.fields.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          for (final field in entry.fields)
+                            _LogChip(label: field.label, value: field.value),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LogChip extends StatelessWidget {
+  const _LogChip({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppTheme.ink.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Text.rich(
+          TextSpan(
+            style: GoogleFonts.figtree(fontSize: 11.5, height: 1.2),
+            children: [
+              TextSpan(
+                text: '$label  ',
+                style: const TextStyle(color: AppTheme.paperMuted),
+              ),
+              TextSpan(
+                text: value,
+                style: const TextStyle(
+                  color: AppTheme.paper,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

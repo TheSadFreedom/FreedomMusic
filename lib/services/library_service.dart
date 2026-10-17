@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -19,6 +20,38 @@ import 'meta_lookup_service.dart';
 import 'metadata_writer.dart';
 import 'scanner_service.dart';
 import 'settings_service.dart';
+
+class JobLogField {
+  const JobLogField(this.label, this.value);
+
+  final String label;
+  final String value;
+}
+
+class JobLogEntry {
+  const JobLogEntry({
+    required this.artist,
+    required this.title,
+    required this.fields,
+    required this.ok,
+    required this.at,
+    this.error,
+  });
+
+  final String artist;
+  final String title;
+  final List<JobLogField> fields;
+  final bool ok;
+  final DateTime at;
+  final String? error;
+
+  String get summary {
+    final who = '$artist — $title';
+    if (!ok) return '$who: ${error ?? 'не записалось'}';
+    if (fields.isEmpty) return who;
+    return '$who: ${fields.map((field) => '${field.label} ${field.value}').join(', ')}';
+  }
+}
 
 class LibraryService extends ChangeNotifier {
   LibraryService({
@@ -69,7 +102,7 @@ class LibraryService extends ChangeNotifier {
   ScanProgress? _scanProgress;
   String? _lastScanMessage;
   String? _error;
-  final List<String> _jobLog = [];
+  final List<JobLogEntry> _jobLog = [];
 
   AppPaths get paths => _paths;
   List<Track> get tracks => _tracks;
@@ -78,7 +111,7 @@ class LibraryService extends ChangeNotifier {
   bool get scanning => _scanning;
   ScanProgress? get scanProgress => _scanProgress;
   String? get lastScanMessage => _lastScanMessage;
-  List<String> get jobLog => List.unmodifiable(_jobLog);
+  List<JobLogEntry> get jobLog => List.unmodifiable(_jobLog);
   String? get error => _error;
   bool get isEmpty => _tracks.isEmpty;
 
@@ -277,8 +310,8 @@ class LibraryService extends ChangeNotifier {
     }
   }
 
-  /// Search the whole library for tracks with empty album/year/track №
-  /// and fill them from the network. Genre and lyrics stay as they are.
+  /// Three steps: pick tracks with empty fields, look them up on the site,
+  /// then write the hits. Genre and lyrics stay as they are.
   Future<void> fillEmptyMetadata() async {
     if (_scanning) return;
     _scanning = true;
@@ -289,35 +322,20 @@ class LibraryService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final candidates = _tracks
-          .where(
-            (t) => MetaLookupService.needsFill(
-              album: t.album,
-              year: t.year,
-              trackNumber: t.trackNumber,
-              trackTotal: t.trackTotal,
-              producer: t.producer,
-            ),
-          )
-          .toList();
-
-      if (candidates.isEmpty) {
-        _lastScanMessage =
-            'Пустых метаданных не найдено — у всех треков альбом, год, '
-            'номер и продюсер уже заполнены.';
-        return;
-      }
-
-      final result = await _autoFillTracks(candidates);
+      final result = await _runMetadataPipeline();
       await reload();
-      if (result.cancelled) {
+      if (result.emptyCount == 0 && !result.cancelled) {
         _lastScanMessage =
-            'Поиск метаданных остановлен. Дополнено: ${result.filled} '
-            'из ${candidates.length}.';
+            'Пустых метаданных не найдено — у всех треков альбом, '
+            'артист альбома, год, номер и продюсер уже заполнены.';
+      } else if (result.cancelled) {
+        _lastScanMessage =
+            'Поиск метаданных остановлен. Пустых: ${result.emptyCount}. '
+            'Найдено: ${result.found}. Записано: ${result.filled}.';
       } else {
         _lastScanMessage =
-            'Проверено треков с пустыми полями: ${candidates.length}. '
-            'Дополнено: ${result.filled}.';
+            'Просмотрено: ${result.scanned}. Пустых: ${result.emptyCount}. '
+            'Найдено: ${result.found}. Записано: ${result.filled}.';
       }
     } catch (e) {
       _error = e.toString();
@@ -370,145 +388,237 @@ class LibraryService extends ChangeNotifier {
     }
   }
 
-  /// Fills empty album / year / track numbers / producer. Genre is not changed.
-  Future<({int filled, bool cancelled})> _autoFillTracks(
-    List<Track> candidates,
-  ) async {
-    var filled = 0;
-    final total = candidates.length;
+  /// Scan, site lookup and file write run at the same time.
+  /// The lookup takes a track as soon as the scan finds an empty one.
+  /// Writing starts as soon as a lookup returns.
+  Future<
+      ({
+        int scanned,
+        int emptyCount,
+        int found,
+        int filled,
+        bool cancelled,
+      })> _runMetadataPipeline() async {
+    final tracks = List<Track>.from(_tracks);
+    final total = tracks.length;
+    final toSearch = _Pipe<Track>();
+    final toWrite = _Pipe<({Track track, MetadataDraft draft, JobLogEntry entry})>();
+    var scanned = 0;
+    var emptyCount = 0;
+    var searched = 0;
+    var found = 0;
+    var written = 0;
+    String? detail;
     var lastUiAt = DateTime.fromMillisecondsSinceEpoch(0);
     const uiInterval = Duration(milliseconds: 400);
 
-    void publishProgress(int index, Track track) {
+    void publish({bool force = false}) {
       final now = DateTime.now();
-      if (now.difference(lastUiAt) < uiInterval && index + 1 < total) {
-        return;
-      }
+      if (!force && now.difference(lastUiAt) < uiInterval) return;
       lastUiAt = now;
+      final workTotal = emptyCount == 0 ? total : emptyCount;
+      final workDone = emptyCount == 0 ? scanned : searched;
+      final tail = detail == null ? '' : ' — $detail';
       _scanProgress = ScanProgress(
-        processed: index + 1,
-        total: total,
-        added: filled,
-        updated: 0,
-        skipped: 0,
-        currentFile: 'Ищем: ${track.displayArtist} — ${track.displayTitle}',
+        processed: workDone.clamp(0, workTotal == 0 ? 0 : workTotal),
+        total: workTotal == 0 ? 1 : workTotal,
+        added: written,
+        updated: found,
+        skipped: emptyCount,
+        currentFile:
+            'Отбор $scanned/$total · пустых $emptyCount · '
+            'найдено $found · записано $written$tail',
       );
       notifyListeners();
     }
 
-    for (var i = 0; i < candidates.length; i++) {
-      if (_cancelFill) {
-        return (filled: filled, cancelled: true);
-      }
-      final track = candidates[i];
-      publishProgress(i, track);
-
-      if (!MetaLookupService.needsFill(
-        album: track.album,
-        year: track.year,
-        trackNumber: track.trackNumber,
-        trackTotal: track.trackTotal,
-        producer: track.producer,
-      )) {
-        continue;
-      }
-      if (track.title.trim().isEmpty ||
-          track.artist.trim().isEmpty ||
-          track.artist.toLowerCase() == 'unknown') {
-        continue;
-      }
-
-      final hit = await _metaLookup.lookup(
-        artist: track.artist,
-        title: track.title,
-      );
-      if (hit == null) continue;
-
-      final needAlbum = track.album.trim().isEmpty ||
-          const {'unknown', 'мне нравится', 'мне нужен ui'}
-              .contains(track.album.trim().toLowerCase());
-      final needYear = track.year == null || track.year! < 1000;
-      final needTrackNo =
-          track.trackNumber == null || track.trackNumber! < 1;
-      final needTrackTotal =
-          track.trackTotal == null || track.trackTotal! < 1;
-      final needDisc = track.discNumber == null || track.discNumber! < 1;
-      final needProducer =
-          track.producer == null || track.producer!.trim().isEmpty;
-
-      final newAlbum = (needAlbum && hit.album != null && hit.album!.isNotEmpty)
-          ? MetaLookupService.cleanAlbum(hit.album!)
-          : track.album;
-      final newYear = (needYear && hit.year != null) ? hit.year : track.year;
-      final newTrackNo = (needTrackNo && hit.trackNumber != null)
-          ? hit.trackNumber
-          : track.trackNumber;
-      final newTrackTotal = (needTrackTotal && hit.trackTotal != null)
-          ? hit.trackTotal
-          : track.trackTotal;
-      final newDisc = (needDisc && hit.discNumber != null)
-          ? hit.discNumber
-          : track.discNumber;
-      final newProducer = (needProducer &&
-              hit.producer != null &&
-              hit.producer!.trim().isNotEmpty)
-          ? hit.producer!.trim()
-          : track.producer;
-
-      if (newAlbum == track.album &&
-          newYear == track.year &&
-          newTrackNo == track.trackNumber &&
-          newTrackTotal == track.trackTotal &&
-          newDisc == track.discNumber &&
-          newProducer == track.producer) {
-        continue;
-      }
-
-      try {
-        final draft = MetadataDraft.fromTrack(track)
-          ..album = newAlbum
-          ..year = newYear
-          ..trackNumber = newTrackNo
-          ..trackTotal = newTrackTotal
-          ..discNumber = newDisc
-          ..producer = newProducer;
-        final line = _metaLogLine(
-          track,
-          album: newAlbum != track.album ? newAlbum : null,
-          year: newYear != track.year ? newYear : null,
-          trackNumber: (newTrackNo != track.trackNumber ||
-                  newTrackTotal != track.trackTotal)
-              ? newTrackNo
-              : null,
-          trackTotal: (newTrackNo != track.trackNumber ||
-                  newTrackTotal != track.trackTotal)
-              ? newTrackTotal
-              : null,
-          discNumber: newDisc != track.discNumber ? newDisc : null,
-          producer: newProducer != track.producer ? newProducer : null,
-        );
-        _scanProgress = ScanProgress(
-          processed: i + 1,
-          total: total,
-          added: filled + 1,
-          updated: 0,
-          skipped: 0,
-          currentFile: line,
-        );
-        // No full-library reload per track — that was blowing RAM to tens of GB.
-        await saveTrackMetadata(track, draft, refreshLibrary: false);
-        _pushJobLog(line);
-        filled++;
-        notifyListeners();
-      } catch (e) {
-        final line =
-            '${track.displayArtist} — ${track.displayTitle}: не записалось ($e)';
-        _pushJobLog(line);
-        debugPrint('auto-fill failed for ${track.trackKey}: $e');
-        notifyListeners();
+    Future<void> searcher() async {
+      while (!_cancelFill) {
+        final track = await toSearch.take();
+        if (track == null) return;
+        detail = 'Ищем на сайте: ${track.displayArtist} — ${track.displayTitle}';
+        publish();
+        final prepared = await _lookupMetadata(track);
+        searched++;
+        if (prepared != null) {
+          found++;
+          toWrite.add((
+            track: track,
+            draft: prepared.draft,
+            entry: prepared.entry,
+          ));
+        }
+        publish();
       }
     }
-    return (filled: filled, cancelled: false);
+
+    Future<void> writer() async {
+      while (true) {
+        final item = await toWrite.take();
+        if (item == null) return;
+        detail = 'Записываем: ${item.entry.summary}';
+        publish(force: true);
+        try {
+          await saveTrackMetadata(item.track, item.draft, refreshLibrary: false);
+          _pushJobLog(item.entry);
+          written++;
+        } catch (e) {
+          _pushJobLog(
+            JobLogEntry(
+              artist: item.track.displayArtist,
+              title: item.track.displayTitle,
+              fields: const [],
+              ok: false,
+              at: DateTime.now(),
+              error: 'не записалось ($e)',
+            ),
+          );
+          debugPrint('auto-fill failed for ${item.track.trackKey}: $e');
+        }
+        publish(force: true);
+      }
+    }
+
+    final searchJobs = List.generate(3, (_) => searcher());
+    final writeJob = writer();
+    try {
+      for (final track in tracks) {
+        if (_cancelFill) break;
+        scanned++;
+        final artist = track.artist.trim();
+        final needs = artist.isNotEmpty &&
+            artist.toLowerCase() != 'unknown' &&
+            track.title.trim().isNotEmpty &&
+            MetaLookupService.needsFill(
+              album: track.album,
+              albumArtist: track.albumArtist,
+              year: track.year,
+              trackNumber: track.trackNumber,
+              trackTotal: track.trackTotal,
+              producer: track.producer,
+            );
+        if (needs) {
+          emptyCount++;
+          detail = 'Пустой: ${track.displayArtist} — ${track.displayTitle}';
+          toSearch.add(track);
+          publish();
+          await Future<void>.delayed(Duration.zero);
+        } else if (scanned % 80 == 0) {
+          publish();
+          await Future<void>.delayed(Duration.zero);
+        }
+      }
+    } finally {
+      toSearch.close();
+    }
+    await Future.wait(searchJobs);
+    toWrite.close();
+    await writeJob;
+    publish(force: true);
+    return (
+      scanned: scanned,
+      emptyCount: emptyCount,
+      found: found,
+      filled: written,
+      cancelled: _cancelFill,
+    );
+  }
+
+  Future<({MetadataDraft draft, JobLogEntry entry})?> _lookupMetadata(
+    Track track,
+  ) async {
+    if (!MetaLookupService.needsFill(
+      album: track.album,
+      albumArtist: track.albumArtist,
+      year: track.year,
+      trackNumber: track.trackNumber,
+      trackTotal: track.trackTotal,
+      producer: track.producer,
+    )) {
+      return null;
+    }
+    if (track.title.trim().isEmpty ||
+        track.artist.trim().isEmpty ||
+        track.artist.toLowerCase() == 'unknown') {
+      return null;
+    }
+
+    final hit = await _metaLookup.lookup(
+      artist: track.artist,
+      title: track.title,
+    );
+    if (hit == null) return null;
+
+    final needAlbum = track.album.trim().isEmpty ||
+        const {'unknown', 'мне нравится', 'мне нужен ui'}
+            .contains(track.album.trim().toLowerCase());
+    final needAlbumArtist =
+        MetaLookupService.albumArtistMissing(track.albumArtist);
+    final needYear = track.year == null || track.year! < 1000;
+    final needTrackNo = track.trackNumber == null || track.trackNumber! < 1;
+    final needTrackTotal = track.trackTotal == null || track.trackTotal! < 1;
+    final needDisc = track.discNumber == null || track.discNumber! < 1;
+    final needProducer =
+        track.producer == null || track.producer!.trim().isEmpty;
+
+    final newAlbum = (needAlbum && hit.album != null && hit.album!.isNotEmpty)
+        ? MetaLookupService.cleanAlbum(hit.album!)
+        : track.album;
+    final newAlbumArtist = (needAlbumArtist &&
+            hit.albumArtist != null &&
+            hit.albumArtist!.trim().isNotEmpty)
+        ? formatArtists(hit.albumArtist)
+        : track.albumArtist;
+    final newYear = (needYear && hit.year != null) ? hit.year : track.year;
+    final newTrackNo = (needTrackNo && hit.trackNumber != null)
+        ? hit.trackNumber
+        : track.trackNumber;
+    final newTrackTotal = (needTrackTotal && hit.trackTotal != null)
+        ? hit.trackTotal
+        : track.trackTotal;
+    final newDisc =
+        (needDisc && hit.discNumber != null) ? hit.discNumber : track.discNumber;
+    final newProducer = (needProducer &&
+            hit.producer != null &&
+            hit.producer!.trim().isNotEmpty)
+        ? hit.producer!.trim()
+        : track.producer;
+
+    if (newAlbum == track.album &&
+        newAlbumArtist == track.albumArtist &&
+        newYear == track.year &&
+        newTrackNo == track.trackNumber &&
+        newTrackTotal == track.trackTotal &&
+        newDisc == track.discNumber &&
+        newProducer == track.producer) {
+      return null;
+    }
+
+    final draft = MetadataDraft.fromTrack(track)
+      ..album = newAlbum
+      ..albumArtist = newAlbumArtist
+      ..year = newYear
+      ..trackNumber = newTrackNo
+      ..trackTotal = newTrackTotal
+      ..discNumber = newDisc
+      ..producer = newProducer;
+    final entry = _metaLogEntry(
+      track,
+      album: newAlbum != track.album ? newAlbum : null,
+      albumArtist: newAlbumArtist != track.albumArtist ? newAlbumArtist : null,
+      year: newYear != track.year ? newYear : null,
+      trackNumber: (newTrackNo != track.trackNumber ||
+              newTrackTotal != track.trackTotal)
+          ? newTrackNo
+          : null,
+      trackTotal: (newTrackNo != track.trackNumber ||
+              newTrackTotal != track.trackTotal)
+          ? newTrackTotal
+          : null,
+      discNumber: newDisc != track.discNumber ? newDisc : null,
+      producer: newProducer != track.producer ? newProducer : null,
+    );
+    return (draft: draft, entry: entry);
   }
 
   Future<({int filled, bool cancelled})> _fillLyrics(
@@ -552,8 +662,13 @@ class LibraryService extends ChangeNotifier {
       final text = await _lyrics.fetchForTrack(track);
       if (text == null || !hasLyrics(text)) continue;
 
-      final line =
-          '${track.displayArtist} — ${track.displayTitle}: текст записан';
+      final entry = JobLogEntry(
+        artist: track.displayArtist,
+        title: track.displayTitle,
+        fields: const [JobLogField('Текст', 'записан')],
+        ok: true,
+        at: DateTime.now(),
+      );
       try {
         _scanProgress = ScanProgress(
           processed: i + 1,
@@ -561,14 +676,14 @@ class LibraryService extends ChangeNotifier {
           added: filled + 1,
           updated: 0,
           skipped: 0,
-          currentFile: line,
+          currentFile: entry.summary,
         );
         await saveTrackMetadata(
           track,
           MetadataDraft.fromTrack(track)..lyrics = text,
           refreshLibrary: false,
         );
-        _pushJobLog(line);
+        _pushJobLog(entry);
         filled++;
         notifyListeners();
       } catch (e, st) {
@@ -579,12 +694,19 @@ class LibraryService extends ChangeNotifier {
           final index =
               _tracks.indexWhere((t) => t.trackKey == track.trackKey);
           if (index >= 0) _tracks[index] = updated;
-          _pushJobLog(line);
+          _pushJobLog(entry);
           filled++;
           notifyListeners();
         } catch (e2) {
           _pushJobLog(
-            '${track.displayArtist} — ${track.displayTitle}: текст не записался ($e2)',
+            JobLogEntry(
+              artist: track.displayArtist,
+              title: track.displayTitle,
+              fields: const [],
+              ok: false,
+              at: DateTime.now(),
+              error: 'текст не записался ($e2)',
+            ),
           );
           debugPrint('lyrics db write ${track.trackKey}: $e2');
           notifyListeners();
@@ -598,40 +720,51 @@ class LibraryService extends ChangeNotifier {
     return (filled: filled, cancelled: false);
   }
 
-  void _pushJobLog(String line) {
-    _jobLog.add(line);
+  void _pushJobLog(JobLogEntry entry) {
+    _jobLog.add(entry);
     if (_jobLog.length > 500) {
       _jobLog.removeRange(0, _jobLog.length - 500);
     }
   }
 
-  String _metaLogLine(
+  JobLogEntry _metaLogEntry(
     Track track, {
     String? album,
+    String? albumArtist,
     int? year,
     int? trackNumber,
     int? trackTotal,
     int? discNumber,
     String? producer,
   }) {
-    final parts = <String>[];
+    final fields = <JobLogField>[];
     if (album != null && album.trim().isNotEmpty) {
-      parts.add('альбом «${album.trim()}»');
+      fields.add(JobLogField('Альбом', album.trim()));
     }
-    if (year != null) parts.add('год $year');
+    if (albumArtist != null && albumArtist.trim().isNotEmpty) {
+      fields.add(JobLogField('Артист альбома', albumArtist.trim()));
+    }
+    if (year != null) fields.add(JobLogField('Год', '$year'));
     if (trackNumber != null || trackTotal != null) {
       final no = trackNumber?.toString() ?? '—';
-      parts.add(
-        trackTotal != null ? 'номер $no из $trackTotal' : 'номер $no',
+      fields.add(
+        JobLogField(
+          'Номер',
+          trackTotal != null ? '$no из $trackTotal' : no,
+        ),
       );
     }
-    if (discNumber != null) parts.add('диск $discNumber');
+    if (discNumber != null) fields.add(JobLogField('Диск', '$discNumber'));
     if (producer != null && producer.trim().isNotEmpty) {
-      parts.add('продюсер ${producer.trim()}');
+      fields.add(JobLogField('Продюсер', producer.trim()));
     }
-    final who = '${track.displayArtist} — ${track.displayTitle}';
-    if (parts.isEmpty) return who;
-    return '$who: ${parts.join(', ')}';
+    return JobLogEntry(
+      artist: track.displayArtist,
+      title: track.displayTitle,
+      fields: fields,
+      ok: true,
+      at: DateTime.now(),
+    );
   }
 
   Map<String, List<Track>> tracksByGenre() {
@@ -991,5 +1124,37 @@ class LibraryService extends ChangeNotifier {
     await reload();
     notifyListeners();
     return result;
+  }
+}
+
+class _Pipe<T> {
+  final _items = <T>[];
+  final _waiters = <Completer<T?>>[];
+  var _closed = false;
+
+  void add(T item) {
+    if (_closed) return;
+    if (_waiters.isNotEmpty) {
+      _waiters.removeAt(0).complete(item);
+    } else {
+      _items.add(item);
+    }
+  }
+
+  void close() {
+    if (_closed) return;
+    _closed = true;
+    for (final waiter in _waiters) {
+      if (!waiter.isCompleted) waiter.complete(null);
+    }
+    _waiters.clear();
+  }
+
+  Future<T?> take() {
+    if (_items.isNotEmpty) return Future<T?>.value(_items.removeAt(0));
+    if (_closed) return Future<T?>.value(null);
+    final waiter = Completer<T?>();
+    _waiters.add(waiter);
+    return waiter.future;
   }
 }

@@ -8,6 +8,7 @@ import 'genius_service.dart';
 class OnlineMetaHit {
   const OnlineMetaHit({
     this.album,
+    this.albumArtist,
     this.year,
     this.genre,
     this.trackNumber,
@@ -19,6 +20,7 @@ class OnlineMetaHit {
   });
 
   final String? album;
+  final String? albumArtist;
   final int? year;
   final String? genre;
   final int? trackNumber;
@@ -47,21 +49,28 @@ class MetaLookupService {
     _client = null;
   }
 
-  /// True if album/year/track#/producer should be filled from the network.
+  /// True if album/year/track#/album artist/producer should be filled.
   static bool needsFill({
     required String album,
+    String? albumArtist,
     int? year,
     int? trackNumber,
     int? trackTotal,
     String? producer,
   }) {
     return _albumMissing(album) ||
+        albumArtistMissing(albumArtist) ||
         _yearMissing(year) ||
         trackNumber == null ||
         trackNumber < 1 ||
         trackTotal == null ||
         trackTotal < 1 ||
         _producerMissing(producer);
+  }
+
+  static bool albumArtistMissing(String? albumArtist) {
+    final a = albumArtist?.trim().toLowerCase() ?? '';
+    return a.isEmpty || a == 'unknown';
   }
 
   static bool _producerMissing(String? producer) {
@@ -114,6 +123,7 @@ class MetaLookupService {
     if (!hit.hasMeta && (lyrics == null || lyrics.isEmpty)) return null;
     return OnlineMetaHit(
       album: hit.album,
+      albumArtist: hit.albumArtist,
       year: hit.year,
       genre: hit.genre,
       trackNumber: hit.trackNumber,
@@ -216,6 +226,7 @@ class MetaLookupService {
         }
         return OnlineMetaHit(
           album: album.isEmpty ? null : album,
+          albumArtist: _cleanName('${map['collectionArtistName'] ?? ''}'),
           year: year,
           genre: genre.isEmpty ? null : genre,
           trackNumber: trackNumber,
@@ -226,6 +237,12 @@ class MetaLookupService {
       }
     }
     return null;
+  }
+
+  static String? _cleanName(String raw) {
+    final name = raw.trim();
+    if (name.isEmpty || name.toLowerCase() == 'unknown') return null;
+    return name;
   }
 
   int? _asPositiveInt(Object? v) {
@@ -271,6 +288,7 @@ class MetaLookupService {
       final alb = map['album'];
       if (alb is Map) album = cleanAlbum('${alb['title'] ?? ''}');
 
+      String? albumArtist;
       int? year;
       String? genre;
       int? trackNumber = _asPositiveInt(map['track_position']);
@@ -300,6 +318,10 @@ class MetaLookupService {
                 if (aym != null) year = int.tryParse(aym.group(0)!);
               }
               trackTotal ??= _asPositiveInt(albumJson['nb_tracks']);
+              final albumArt = albumJson['artist'];
+              if (albumArt is Map) {
+                albumArtist ??= _cleanName('${albumArt['name'] ?? ''}');
+              }
               final genres = albumJson['genres'];
               if (genres is Map && genres['data'] is List) {
                 final gList = genres['data'] as List;
@@ -321,6 +343,7 @@ class MetaLookupService {
       }
       return OnlineMetaHit(
         album: album.isEmpty ? null : album,
+        albumArtist: albumArtist,
         year: year,
         genre: genre,
         trackNumber: trackNumber,
