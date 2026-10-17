@@ -12,6 +12,7 @@ class Playlist {
 
   static const kindTrash = 'trash';
   static const kindNew = 'new';
+  static const kindIncomplete = 'incomplete';
   /// How long a freshly scanned track stays in «Новинки».
   static const newTrackDays = 7;
 
@@ -27,6 +28,7 @@ class Playlist {
 
   bool get isTrash => systemKind == kindTrash;
   bool get isNew => systemKind == kindNew;
+  bool get isIncomplete => systemKind == kindIncomplete;
   bool get isSystem => systemKind != null;
 
   DateTime get lastTouched => updatedAt ?? createdAt;

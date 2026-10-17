@@ -789,8 +789,9 @@ class AppDatabase {
       ORDER BY
         CASE p.system_kind
           WHEN '${Playlist.kindNew}' THEN 0
-          WHEN '${Playlist.kindTrash}' THEN 1
-          ELSE 2
+          WHEN '${Playlist.kindIncomplete}' THEN 1
+          WHEN '${Playlist.kindTrash}' THEN 2
+          ELSE 3
         END,
         p.created_at DESC
     ''');
@@ -821,6 +822,29 @@ class AppDatabase {
       'description':
           'Удалённые треки. Восстановите или удалите файл навсегда.',
       'system_kind': Playlist.kindTrash,
+    });
+  }
+
+  /// Creates the «Без метаданных» system playlist if missing. Returns its id.
+  Future<int> ensureIncompletePlaylist() async {
+    final existing = await _db.query(
+      'playlists',
+      columns: ['id'],
+      where: 'system_kind = ?',
+      whereArgs: [Playlist.kindIncomplete],
+      limit: 1,
+    );
+    if (existing.isNotEmpty) {
+      return existing.first['id'] as int;
+    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return _db.insert('playlists', {
+      'name': 'Без метаданных',
+      'created_at': now,
+      'updated_at': now,
+      'description':
+          'Треки, у которых не заполнены альбом, артист альбома, год, номер или продюсер.',
+      'system_kind': Playlist.kindIncomplete,
     });
   }
 
@@ -1129,6 +1153,38 @@ class AppDatabase {
           'position': i,
         });
       }
+    });
+  }
+
+  /// Replace «Без метаданных» membership with [trackKeys], in that order.
+  Future<void> syncIncompletePlaylistMembership(List<String> trackKeys) async {
+    final id = await ensureIncompletePlaylist();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await _db.transaction((txn) async {
+      await txn.delete(
+        'playlist_tracks',
+        where: 'playlist_id = ?',
+        whereArgs: [id],
+      );
+      const chunk = 400;
+      for (var i = 0; i < trackKeys.length; i += chunk) {
+        final end = (i + chunk).clamp(0, trackKeys.length);
+        final batch = txn.batch();
+        for (var j = i; j < end; j++) {
+          batch.insert('playlist_tracks', {
+            'playlist_id': id,
+            'track_key': trackKeys[j],
+            'position': j,
+          });
+        }
+        await batch.commit(noResult: true);
+      }
+      await txn.update(
+        'playlists',
+        {'updated_at': now},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
     });
   }
 

@@ -145,9 +145,23 @@ class LibraryService extends ChangeNotifier {
   Future<void> reload() async {
     await _db.ensureTrashPlaylist();
     await _db.ensureNewPlaylist();
+    await _db.ensureIncompletePlaylist();
     await _db.syncTrashPlaylistMembership();
     await _db.syncNewPlaylistMembership();
     _tracks = await _db.getAllTracks();
+    await _db.syncIncompletePlaylistMembership([
+      for (final track in _tracks)
+        if (!track.isTrashed &&
+            MetaLookupService.needsFill(
+              album: track.album,
+              albumArtist: track.albumArtist,
+              year: track.year,
+              trackNumber: track.trackNumber,
+              trackTotal: track.trackTotal,
+              producer: track.producer,
+            ))
+          track.trackKey,
+    ]);
     _playlists = await _db.getPlaylists();
     await _loadArtistAliases();
     _error = null;
@@ -1093,7 +1107,30 @@ class LibraryService extends ChangeNotifier {
     }
   }
 
-  Future<List<Track>> playlistTracks(int id) => _db.getPlaylistTracks(id);
+  /// Tracks still missing album, album artist, year, number, or producer.
+  List<Track> tracksMissingMetadata() {
+    return [
+      for (final track in _tracks)
+        if (!track.isTrashed &&
+            MetaLookupService.needsFill(
+              album: track.album,
+              albumArtist: track.albumArtist,
+              year: track.year,
+              trackNumber: track.trackNumber,
+              trackTotal: track.trackTotal,
+              producer: track.producer,
+            ))
+          track,
+    ];
+  }
+
+  Future<List<Track>> playlistTracks(int id) async {
+    final playlist = playlistById(id);
+    if (playlist != null && playlist.isIncomplete) {
+      return tracksMissingMetadata();
+    }
+    return _db.getPlaylistTracks(id);
+  }
 
   /// Returns false when the track was already in the playlist.
   Future<bool> addToPlaylist(int playlistId, String trackKey) async {

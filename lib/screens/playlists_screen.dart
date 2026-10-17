@@ -14,7 +14,6 @@ import '../utils/duration_format.dart';
 import '../utils/image_pick.dart';
 import '../widgets/ambient_backdrop.dart';
 import '../widgets/listen_actions.dart';
-import '../widgets/pill_segmented.dart';
 import '../widgets/screen_title.dart';
 import '../widgets/track_cover_play.dart';
 import '../widgets/track_meta_links.dart';
@@ -22,82 +21,251 @@ import '../utils/trash_actions.dart';
 import '../widgets/track_tile.dart';
 import 'genres_screen.dart';
 
-enum _PlaylistsSection {
-  mine,
-  genres,
-}
-
-extension on _PlaylistsSection {
-  String get label => switch (this) {
-        _PlaylistsSection.mine => 'Мои плейлисты',
-        _PlaylistsSection.genres => 'Плейлисты по жанрам',
-      };
-}
-
-class PlaylistsScreen extends StatefulWidget {
+class PlaylistsScreen extends StatelessWidget {
   const PlaylistsScreen({super.key});
 
-  @override
-  State<PlaylistsScreen> createState() => _PlaylistsScreenState();
-}
-
-class _PlaylistsScreenState extends State<PlaylistsScreen> {
   static const _yellow = Color(0xFFFFDB4D);
-
-  _PlaylistsSection _section = _PlaylistsSection.mine;
 
   @override
   Widget build(BuildContext context) {
     final library = context.watch<LibraryService>();
+    final system = _systemPlaylists(library.playlists);
+    final mine = library.playlists.where((p) => !p.isSystem).toList();
+    final genres = library.tracksByGenre();
+    final missingCount = library.tracksMissingMetadata().length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         ScreenTitle(
           title: 'Плейлисты',
-          trailing: _section == _PlaylistsSection.mine
-              ? FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: _yellow,
-                    foregroundColor: Colors.black,
-                    shape: const StadiumBorder(),
-                    textStyle: GoogleFonts.figtree(fontWeight: FontWeight.w800),
-                  ),
-                  onPressed: () => _create(context),
-                  icon: const Icon(Icons.add, size: 20),
-                  label: const Text('Создать'),
-                )
-              : null,
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: PillSegmented<_PlaylistsSection>(
-              segments: [
-                for (final s in _PlaylistsSection.values)
-                  PillSegment(value: s, label: s.label),
-              ],
-              selected: _section,
-              onChanged: (s) => setState(() => _section = s),
+          trailing: FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: _yellow,
+              foregroundColor: Colors.black,
+              shape: const StadiumBorder(),
+              textStyle: GoogleFonts.figtree(fontWeight: FontWeight.w800),
             ),
+            onPressed: () => _create(context),
+            icon: const Icon(Icons.add, size: 20),
+            label: const Text('Создать'),
           ),
         ),
         Expanded(
-          child: switch (_section) {
-            _PlaylistsSection.mine => _MyPlaylistsBody(
-                playlists: library.playlists,
-                onRename: (pl) => _rename(context, pl),
-                onDelete: (pl) => library.deletePlaylist(pl.id),
+          child: ListView(
+            padding: const EdgeInsets.only(bottom: 48),
+            children: [
+              _SectionTitle(
+                title: 'Системные',
+                onTap: () => _openGrid(
+                  context,
+                  title: 'Системные',
+                  items: [
+                    for (final pl in system)
+                      _itemForPlaylist(
+                        context,
+                        pl,
+                        count: pl.isIncomplete ? missingCount : pl.trackCount,
+                      ),
+                  ],
+                ),
               ),
-            _PlaylistsSection.genres => _GenrePlaylistsBody(
-                genres: library.tracksByGenre(),
-                isEmpty: library.isEmpty,
+              _CoverCarousel(
+                items: [
+                  for (final pl in system)
+                    _itemForPlaylist(
+                      context,
+                      pl,
+                      count: pl.isIncomplete ? missingCount : pl.trackCount,
+                    ),
+                ],
               ),
-          },
+              _SectionTitle(
+                title: 'Мои',
+                onTap: mine.isEmpty
+                    ? null
+                    : () => _openGrid(
+                          context,
+                          title: 'Мои',
+                          items: [
+                            for (final pl in mine)
+                              _itemForPlaylist(
+                                context,
+                                pl,
+                                count: pl.trackCount,
+                                onRename: () => _rename(context, pl),
+                                onDelete: () => library.deletePlaylist(pl.id),
+                              ),
+                          ],
+                        ),
+              ),
+              if (mine.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+                  child: Text(
+                    'Своих плейлистов пока нет.',
+                    style: GoogleFonts.figtree(color: AppTheme.paperMuted),
+                  ),
+                )
+              else
+                _CoverCarousel(
+                  items: [
+                    for (final pl in mine)
+                      _itemForPlaylist(
+                        context,
+                        pl,
+                        count: pl.trackCount,
+                        onRename: () => _rename(context, pl),
+                        onDelete: () => library.deletePlaylist(pl.id),
+                      ),
+                  ],
+                ),
+              if (genres.isNotEmpty) ...[
+                _SectionTitle(
+                  title: 'Жанры',
+                  onTap: () => _openGrid(
+                    context,
+                    title: 'Жанры',
+                    items: [
+                      for (final entry in genres.entries)
+                        _itemForGenre(context, entry.key, entry.value),
+                    ],
+                  ),
+                ),
+                _CoverCarousel(
+                  items: [
+                    for (final entry in genres.entries)
+                      _itemForGenre(context, entry.key, entry.value),
+                  ],
+                ),
+              ],
+            ],
+          ),
         ),
       ],
     );
+  }
+
+  List<Playlist> _systemPlaylists(List<Playlist> playlists) {
+    final system = playlists.where((p) => p.isSystem).toList()
+      ..sort((a, b) {
+        int rank(Playlist p) {
+          if (p.isNew) return 0;
+          if (p.isIncomplete) return 1;
+          if (p.isTrash) return 2;
+          return 3;
+        }
+
+        return rank(a).compareTo(rank(b));
+      });
+    return system;
+  }
+
+  void _openGrid(
+    BuildContext context, {
+    required String title,
+    required List<_CoverItem> items,
+  }) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _PlaylistGridScreen(title: title, items: items),
+      ),
+    );
+  }
+
+  _CoverItem _itemForPlaylist(
+    BuildContext context,
+    Playlist playlist, {
+    required int count,
+    VoidCallback? onRename,
+    VoidCallback? onDelete,
+  }) {
+    return _CoverItem(
+      title: playlist.name,
+      kind: playlist.isSystem ? 'Системный' : 'Плейлист',
+      meta: _playlistMeta(playlist, count),
+      coverPath: playlist.coverPath,
+      icon: _systemIcon(playlist),
+      iconColor: _systemIconColor(playlist),
+      onOpen: () {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => PlaylistDetailScreen(playlistId: playlist.id),
+          ),
+        );
+      },
+      onRename: playlist.isSystem ? null : onRename,
+      onDelete: playlist.isSystem ? null : onDelete,
+    );
+  }
+
+  _CoverItem _itemForGenre(
+    BuildContext context,
+    String name,
+    List<Track> tracks,
+  ) {
+    String? cover;
+    for (final track in tracks) {
+      final path = track.coverPath;
+      if (path != null && path.isNotEmpty) {
+        cover = path;
+        break;
+      }
+    }
+    return _CoverItem(
+      title: name,
+      kind: 'Жанр',
+      meta: _tracksLabel(tracks.length),
+      coverPath: cover,
+      icon: Icons.library_music,
+      iconColor: AppTheme.mossBright,
+      onOpen: () {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => GenreDetailScreen(genre: name, tracks: tracks),
+          ),
+        );
+      },
+    );
+  }
+
+  String _playlistMeta(Playlist playlist, int count) {
+    if (playlist.isTrash) {
+      return count == 0 ? 'Пусто' : '$count удалённых';
+    }
+    if (playlist.isNew) {
+      return count == 0
+          ? 'Пока пусто'
+          : '$count за ${Playlist.newTrackDays} дн.';
+    }
+    if (playlist.isIncomplete) {
+      return count == 0 ? 'Всё заполнено' : '$count без метаданных';
+    }
+    return _tracksLabel(count);
+  }
+
+  String _tracksLabel(int count) {
+    final mod10 = count % 10;
+    final mod100 = count % 100;
+    if (mod10 == 1 && mod100 != 11) return '$count трек';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+      return '$count трека';
+    }
+    return '$count треков';
+  }
+
+  IconData _systemIcon(Playlist playlist) {
+    if (playlist.isTrash) return Icons.delete_outline_rounded;
+    if (playlist.isNew) return Icons.fiber_new_rounded;
+    if (playlist.isIncomplete) return Icons.article_outlined;
+    return Icons.queue_music;
+  }
+
+  Color _systemIconColor(Playlist playlist) {
+    if (playlist.isTrash) return AppTheme.paperMuted;
+    if (playlist.isNew) return _yellow;
+    if (playlist.isIncomplete) return AppTheme.lime;
+    return AppTheme.mossBright;
   }
 
   Future<void> _create(BuildContext context) async {
@@ -149,271 +317,355 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
   }
 }
 
-class _MyPlaylistsBody extends StatelessWidget {
-  const _MyPlaylistsBody({
-    required this.playlists,
-    required this.onRename,
-    required this.onDelete,
+class _CoverItem {
+  const _CoverItem({
+    required this.title,
+    required this.kind,
+    required this.meta,
+    required this.onOpen,
+    this.coverPath,
+    this.icon,
+    this.iconColor,
+    this.onRename,
+    this.onDelete,
   });
 
-  final List<Playlist> playlists;
-  final ValueChanged<Playlist> onRename;
-  final ValueChanged<Playlist> onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    if (playlists.isEmpty) {
-      return Center(
-        child: Text(
-          'Плейлистов пока нет.',
-          style: GoogleFonts.figtree(color: AppTheme.paperMuted),
-        ),
-      );
-    }
-
-    // System playlists stay pinned: Новинки, then Корзина, then user lists.
-    final pinned = playlists.where((p) => p.isSystem).toList()
-      ..sort((a, b) {
-        int rank(Playlist p) => p.isNew ? 0 : (p.isTrash ? 1 : 2);
-        return rank(a).compareTo(rank(b));
-      });
-    final rest = playlists.where((p) => !p.isSystem).toList();
-    final ordered = [...pinned, ...rest];
-
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-      itemCount: ordered.length,
-      itemBuilder: (context, index) {
-        final pl = ordered[index];
-        return _PlaylistCard(
-          playlist: pl,
-          onOpen: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => PlaylistDetailScreen(playlistId: pl.id),
-              ),
-            );
-          },
-          onRename: () => onRename(pl),
-          onDelete: () => onDelete(pl),
-        );
-      },
-    );
-  }
+  final String title;
+  final String kind;
+  final String meta;
+  final String? coverPath;
+  final IconData? icon;
+  final Color? iconColor;
+  final VoidCallback onOpen;
+  final VoidCallback? onRename;
+  final VoidCallback? onDelete;
 }
 
-class _GenrePlaylistsBody extends StatelessWidget {
-  const _GenrePlaylistsBody({
-    required this.genres,
-    required this.isEmpty,
-  });
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle({required this.title, this.onTap});
 
-  final Map<String, List<Track>> genres;
-  final bool isEmpty;
+  final String title;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    if (isEmpty) {
-      return Center(
-        child: Text(
-          'Нет треков. Сканируйте папку music в Настройках.',
-          style: GoogleFonts.figtree(color: AppTheme.paperMuted),
-        ),
-      );
-    }
-
-    if (genres.isEmpty) {
-      return Center(
-        child: Text(
-          'Жанров пока нет.',
-          style: GoogleFonts.figtree(color: AppTheme.paperMuted),
-        ),
-      );
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-      itemCount: genres.length,
-      itemBuilder: (context, index) {
-        final name = genres.keys.elementAt(index);
-        final tracks = genres[name]!;
-        return Material(
-          color: Colors.transparent,
-          child: InkWell(
-            mouseCursor: SystemMouseCursors.click,
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => GenreDetailScreen(
-                    genre: name,
-                    tracks: tracks,
-                  ),
-                ),
-              );
-            },
-            borderRadius: BorderRadius.circular(12),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-              child: Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: const SizedBox(
-                      width: 64,
-                      height: 64,
-                      child: ColoredBox(
-                        color: AppTheme.inkLift,
-                        child: Icon(
-                          Icons.library_music,
-                          color: AppTheme.mossBright,
-                          size: 28,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.figtree(
-                            color: AppTheme.paper,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 16,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${tracks.length} треков',
-                          style: GoogleFonts.figtree(
-                            color: AppTheme.paperMuted,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Icon(
-                    Icons.chevron_right,
-                    color: AppTheme.paperMuted,
-                  ),
-                ],
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 10),
+      child: InkWell(
+        mouseCursor:
+            onTap == null ? SystemMouseCursors.basic : SystemMouseCursors.click,
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Row(
+          children: [
+            Text(
+              title,
+              style: GoogleFonts.syne(
+                color: AppTheme.paper,
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
               ),
             ),
-          ),
-        );
-      },
+            if (onTap != null) ...[
+              const SizedBox(width: 4),
+              const Icon(Icons.chevron_right, color: AppTheme.paperMuted),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
 
-class _PlaylistCard extends StatelessWidget {
-  const _PlaylistCard({
-    required this.playlist,
-    required this.onOpen,
-    required this.onRename,
-    required this.onDelete,
-  });
+class _CoverCarousel extends StatefulWidget {
+  const _CoverCarousel({required this.items});
 
-  final Playlist playlist;
-  final VoidCallback onOpen;
-  final VoidCallback onRename;
-  final VoidCallback onDelete;
+  final List<_CoverItem> items;
+
+  @override
+  State<_CoverCarousel> createState() => _CoverCarouselState();
+}
+
+class _CoverCarouselState extends State<_CoverCarousel> {
+  final _controller = ScrollController();
+  bool _canBack = false;
+  bool _canForward = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_syncArrows);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncArrows());
+  }
+
+  @override
+  void didUpdateWidget(covariant _CoverCarousel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncArrows());
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_syncArrows);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _syncArrows() {
+    if (!_controller.hasClients) return;
+    final pos = _controller.position;
+    final back = pos.pixels > 4;
+    final forward = pos.pixels < pos.maxScrollExtent - 4;
+    if (back != _canBack || forward != _canForward) {
+      setState(() {
+        _canBack = back;
+        _canForward = forward;
+      });
+    }
+  }
+
+  void _page(bool forward) {
+    if (!_controller.hasClients) return;
+    final delta = forward ? 320.0 : -320.0;
+    final target = (_controller.offset + delta)
+        .clamp(0.0, _controller.position.maxScrollExtent);
+    _controller.animateTo(
+      target,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  static const _coverSize = 148.0;
+  static const _arrowSize = 40.0;
 
   @override
   Widget build(BuildContext context) {
-    final isTrash = playlist.isTrash;
-    final isNew = playlist.isNew;
+    final arrowTop = (_coverSize - _arrowSize) / 2;
+    return SizedBox(
+      height: 236,
+      child: Stack(
+        children: [
+          NotificationListener<ScrollMetricsNotification>(
+            onNotification: (_) {
+              _syncArrows();
+              return false;
+            },
+            child: ListView.separated(
+              controller: _controller,
+              physics: const NeverScrollableScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              scrollDirection: Axis.horizontal,
+              itemCount: widget.items.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 14),
+              itemBuilder: (context, index) {
+                return _CoverCard(item: widget.items[index]);
+              },
+            ),
+          ),
+          if (_canBack)
+            Positioned(
+              left: 4,
+              top: arrowTop,
+              child: _CarouselArrow(
+                forward: false,
+                onPressed: () => _page(false),
+              ),
+            ),
+          if (_canForward)
+            Positioned(
+              right: 4,
+              top: arrowTop,
+              child: _CarouselArrow(
+                forward: true,
+                onPressed: () => _page(true),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CarouselArrow extends StatelessWidget {
+  const _CarouselArrow({required this.forward, required this.onPressed});
+
+  final bool forward;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = forward
+        ? const Icon(
+            Icons.chevron_right_rounded,
+            size: 28,
+            color: Color(0xFF1A1A1A),
+          )
+        : const Icon(
+            Icons.chevron_left_rounded,
+            size: 28,
+            color: Color(0xFF1A1A1A),
+          );
+    return Material(
+      color: Colors.white.withValues(alpha: 0.82),
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        mouseCursor: SystemMouseCursors.click,
+        onTap: onPressed,
+        child: SizedBox(width: 40, height: 40, child: Center(child: icon)),
+      ),
+    );
+  }
+}
+
+class _CoverCard extends StatelessWidget {
+  const _CoverCard({required this.item, this.width = 148});
+
+  final _CoverItem item;
+  final double? width;
+
+  @override
+  Widget build(BuildContext context) {
+    final path = item.coverPath;
     Widget cover = ColoredBox(
       color: AppTheme.inkLift,
       child: Icon(
-        isTrash
-            ? Icons.delete_outline_rounded
-            : isNew
-                ? Icons.fiber_new_rounded
-                : Icons.queue_music,
-        color: isTrash
-            ? AppTheme.paperMuted
-            : isNew
-                ? const Color(0xFFFFDB4D)
-                : AppTheme.mossBright,
-        size: 28,
+        item.icon ?? Icons.queue_music,
+        color: item.iconColor ?? AppTheme.mossBright,
+        size: 40,
       ),
     );
-    final path = playlist.coverPath;
     if (path != null && File(path).existsSync()) {
       cover = Image.file(File(path), fit: BoxFit.cover);
     }
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        mouseCursor: SystemMouseCursors.click,
-        onTap: onOpen,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-          child: Row(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: SizedBox(width: 64, height: 64, child: cover),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      playlist.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.figtree(
-                        color: AppTheme.paper,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 16,
+    return InkWell(
+      mouseCursor: SystemMouseCursors.click,
+      onTap: item.onOpen,
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        width: width,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.35),
+                        blurRadius: 14,
+                        offset: const Offset(0, 6),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      isTrash
-                          ? (playlist.trackCount == 0
-                              ? 'Пусто'
-                              : '${playlist.trackCount} удалённых')
-                          : isNew
-                              ? (playlist.trackCount == 0
-                                  ? 'Пока пусто'
-                                  : '${playlist.trackCount} за ${Playlist.newTrackDays} дн.')
-                              : '${playlist.trackCount} треков',
-                      style: GoogleFonts.figtree(
-                        color: AppTheme.paperMuted,
-                        fontSize: 13,
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: AspectRatio(aspectRatio: 1, child: cover),
+                  ),
+                ),
+                if (item.onRename != null || item.onDelete != null)
+                  Positioned(
+                    top: 4,
+                    right: 4,
+                    child: PopupMenuButton<String>(
+                      tooltip: 'Ещё',
+                      color: AppTheme.inkLift,
+                      icon: const Icon(
+                        Icons.more_horiz,
+                        color: Colors.white,
+                        size: 20,
                       ),
+                      onSelected: (value) {
+                        if (value == 'rename') item.onRename?.call();
+                        if (value == 'delete') item.onDelete?.call();
+                      },
+                      itemBuilder: (_) => [
+                        if (item.onRename != null)
+                          const PopupMenuItem(
+                            value: 'rename',
+                            child: Text('Переименовать'),
+                          ),
+                        if (item.onDelete != null)
+                          const PopupMenuItem(
+                            value: 'delete',
+                            child: Text('Удалить'),
+                          ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              item.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.figtree(
+                color: AppTheme.paper,
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+                height: 1.2,
               ),
-              if (!playlist.isSystem)
-                PopupMenuButton<String>(
-                  onSelected: (value) {
-                    if (value == 'rename') onRename();
-                    if (value == 'delete') onDelete();
-                  },
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(
-                      value: 'rename',
-                      child: Text('Переименовать'),
-                    ),
-                    PopupMenuItem(value: 'delete', child: Text('Удалить')),
-                  ],
-                ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              item.kind,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.figtree(
+                color: AppTheme.paperMuted,
+                fontSize: 12,
+              ),
+            ),
+            Text(
+              item.meta,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.figtree(
+                color: AppTheme.paperMuted,
+                fontSize: 12,
+              ),
+            ),
+          ],
         ),
+      ),
+    );
+  }
+}
+
+class _PlaylistGridScreen extends StatelessWidget {
+  const _PlaylistGridScreen({required this.title, required this.items});
+
+  final String title;
+  final List<_CoverItem> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppTheme.ink,
+      appBar: AppBar(
+        backgroundColor: AppTheme.ink,
+        title: Text(
+          title,
+          style: GoogleFonts.syne(fontWeight: FontWeight.w700),
+        ),
+      ),
+      body: GridView.builder(
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 48),
+        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+          maxCrossAxisExtent: 180,
+          mainAxisSpacing: 18,
+          crossAxisSpacing: 14,
+          childAspectRatio: 0.62,
+        ),
+        itemCount: items.length,
+        itemBuilder: (context, index) {
+          return _CoverCard(item: items[index], width: null);
+        },
       ),
     );
   }
@@ -476,6 +728,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     final dateLabel = DateFormat.MMMd().format(pl.lastTouched);
     final isTrash = pl.isTrash;
     final isNew = pl.isNew;
+    final isIncomplete = pl.isIncomplete;
     final isSystem = pl.isSystem;
 
     return Scaffold(
@@ -522,7 +775,10 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
               ),
               SliverToBoxAdapter(
                 child: _PlaylistHeader(
-                  playlist: pl,
+                  playlist: isIncomplete &&
+                          snapshot.connectionState == ConnectionState.done
+                      ? pl.copyWith(trackCount: tracks.length)
+                      : pl,
                   dateLabel: dateLabel,
                   onListen: tracks.isEmpty
                       ? null
@@ -570,7 +826,9 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                           ? 'Корзина пуста.'
                           : isNew
                               ? 'Новых треков за ${Playlist.newTrackDays} дней нет.'
-                              : 'Плейлист пуст.',
+                              : isIncomplete
+                                  ? 'Треков с пустыми метаданными нет.'
+                                  : 'Плейлист пуст.',
                       style: GoogleFonts.figtree(color: AppTheme.paperMuted),
                     ),
                   ),
@@ -610,7 +868,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                                 _reload();
                               }
                             : null,
-                        onTrash: isNew
+                        onTrash: (isNew || isIncomplete)
                             ? () async {
                                 await moveTrackToTrash(context, track);
                                 _reload();
@@ -808,6 +1066,7 @@ class _PlaylistHeader extends StatelessWidget {
     final wide = MediaQuery.sizeOf(context).width >= 720;
     final isTrash = playlist.isTrash;
     final isNew = playlist.isNew;
+    final isIncomplete = playlist.isIncomplete;
     final cover = _EditableCover(
       path: playlist.coverPath,
       size: wide ? 200 : 160,
@@ -860,7 +1119,9 @@ class _PlaylistHeader extends StatelessWidget {
                       ? 'Удалённые треки скрыты из библиотеки'
                       : isNew
                           ? 'Автоматически за последние ${Playlist.newTrackDays} дней'
-                          : 'Добавить описание...')
+                          : isIncomplete
+                              ? 'Альбом, артист альбома, год, номер или продюсер не заполнены'
+                              : 'Добавить описание...')
                   : playlist.description!,
               textAlign: wide ? TextAlign.left : TextAlign.center,
               style: GoogleFonts.figtree(
@@ -876,7 +1137,9 @@ class _PlaylistHeader extends StatelessWidget {
               ? '${playlist.trackCount} треков в корзине'
               : isNew
                   ? '${playlist.trackCount} новинок · окно ${Playlist.newTrackDays} дней'
-                  : 'Обновлён $dateLabel · ${playlist.trackCount} треков',
+                  : isIncomplete
+                      ? '${playlist.trackCount} без метаданных'
+                      : 'Обновлён $dateLabel · ${playlist.trackCount} треков',
           textAlign: wide ? TextAlign.left : TextAlign.center,
           style: GoogleFonts.figtree(
             color: AppTheme.paperMuted.withValues(alpha: 0.8),
@@ -965,11 +1228,13 @@ class _EditableCoverState extends State<_EditableCover> {
     final icon = switch (kind) {
       Playlist.kindTrash => Icons.delete_outline_rounded,
       Playlist.kindNew => Icons.fiber_new_rounded,
+      Playlist.kindIncomplete => Icons.article_outlined,
       _ => Icons.queue_music,
     };
     final iconColor = switch (kind) {
       Playlist.kindTrash => AppTheme.paperMuted,
       Playlist.kindNew => const Color(0xFFFFDB4D),
+      Playlist.kindIncomplete => AppTheme.lime,
       _ => AppTheme.mossBright,
     };
     Widget image = ColoredBox(
@@ -1132,13 +1397,13 @@ class _PlaylistTrackRowState extends State<_PlaylistTrackRow> {
                       color: Colors.redAccent.shade100,
                     ),
                   ),
-                ] else if (widget.isNew)
+                ] else if (widget.onTrash != null)
                   IconButton(
                     tooltip: 'В корзину',
                     onPressed: widget.onTrash,
                     icon: const Icon(Icons.delete_outline_rounded, size: 20),
                   )
-                else
+                else if (widget.onRemove != null)
                   IconButton(
                     tooltip: 'Убрать',
                     onPressed: widget.onRemove,
