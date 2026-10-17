@@ -7,6 +7,7 @@ class SettingsService extends ChangeNotifier {
   final SharedPreferences _prefs;
 
   static const _scanOnStartupKey = 'scan_on_startup';
+  static const _playOnStartupKey = 'play_on_startup';
   static const _autoFillMetaKey = 'auto_fill_empty_metadata';
   static const _playerVolumeKey = 'player_volume';
   static const _playerVolumeBeforeMuteKey = 'player_volume_before_mute';
@@ -36,6 +37,15 @@ class SettingsService extends ChangeNotifier {
 
   Future<void> setScanOnStartup(bool value) async {
     await _prefs.setBool(_scanOnStartupKey, value);
+    notifyListeners();
+  }
+
+  /// Resume the last track on launch, or start a random stream when there
+  /// was no queue.
+  bool get playOnStartup => _prefs.getBool(_playOnStartupKey) ?? false;
+
+  Future<void> setPlayOnStartup(bool value) async {
+    await _prefs.setBool(_playOnStartupKey, value);
     notifyListeners();
   }
 
@@ -218,12 +228,15 @@ class SettingsService extends ChangeNotifier {
 
   Map<String, bool> exportSettingsFlags() => {
         'scanOnStartup': scanOnStartup,
+        'playOnStartup': playOnStartup,
         'autoFillEmptyMetadata': autoFillEmptyMetadata,
       };
 
   Future<void> importSettingsFlags(Map<String, dynamic> flags) async {
     final scan = flags['scanOnStartup'];
     if (scan is bool) await setScanOnStartup(scan);
+    final play = flags['playOnStartup'];
+    if (play is bool) await setPlayOnStartup(play);
     final fill = flags['autoFillEmptyMetadata'];
     if (fill is bool) await setAutoFillEmptyMetadata(fill);
   }

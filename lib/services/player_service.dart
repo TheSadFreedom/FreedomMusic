@@ -371,6 +371,20 @@ class PlayerService extends ChangeNotifier {
     _engineArmed = true;
   }
 
+  /// Continue the restored track, or start the home random stream.
+  Future<void> startOnLaunch() async {
+    _armEngine();
+    if (current == null) {
+      await playRandomAll();
+      return;
+    }
+    final pos = _position;
+    await _playIndex(_index, autoplay: true);
+    if (pos > Duration.zero) {
+      await seek(pos);
+    }
+  }
+
   Future<void> playRandomAll() async {
     _armEngine();
     final tracks = _withExistingFiles(_library.tracks);

@@ -207,6 +207,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final scanOnStartup = context.select<SettingsService, bool>(
       (s) => s.scanOnStartup,
     );
+    final playOnStartup = context.select<SettingsService, bool>(
+      (s) => s.playOnStartup,
+    );
     final crossfade = context.select<SettingsService, int>(
       (s) => s.crossfadeSeconds,
     );
@@ -261,6 +264,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               onChanged: busy
                                   ? null
                                   : settings.setScanOnStartup,
+                            ),
+                            const SizedBox(height: 10),
+                            _SettingSwitch(
+                              title: 'Включать музыку при запуске',
+                              subtitle:
+                                  'Последний трек с того же места. Если его не было — случайный поток.',
+                              value: playOnStartup,
+                              onChanged: settings.setPlayOnStartup,
                             ),
                             const SizedBox(height: 14),
                             _CrossfadeSlider(

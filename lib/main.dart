@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -124,6 +125,11 @@ class _BootAppState extends State<_BootApp> {
           desktopShell: desktopShell,
         );
       });
+      if (settings.playOnStartup) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          unawaited(player.startOnLaunch());
+        });
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
