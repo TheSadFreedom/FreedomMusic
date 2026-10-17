@@ -340,15 +340,14 @@ class LibraryService extends ChangeNotifier {
       await reload();
       if (result.emptyCount == 0 && !result.cancelled) {
         _lastScanMessage =
-            'Пустых метаданных не найдено — у всех треков альбом, '
-            'артист альбома, год, номер и продюсер уже заполнены.';
+            'Список «Без метаданных» пуст — заполнять нечего.';
       } else if (result.cancelled) {
         _lastScanMessage =
-            'Поиск метаданных остановлен. Пустых: ${result.emptyCount}. '
+            'Поиск метаданных остановлен. В списке: ${result.emptyCount}. '
             'Найдено: ${result.found}. Записано: ${result.filled}.';
       } else {
         _lastScanMessage =
-            'Просмотрено: ${result.scanned}. Пустых: ${result.emptyCount}. '
+            'В списке без метаданных: ${result.emptyCount}. '
             'Найдено: ${result.found}. Записано: ${result.filled}.';
       }
     } catch (e) {
@@ -402,8 +401,9 @@ class LibraryService extends ChangeNotifier {
     }
   }
 
-  /// Scan, site lookup and file write run at the same time.
-  /// The lookup takes a track as soon as the scan finds an empty one.
+  /// Site lookup and file write run at the same time.
+  /// Only tracks already in «Без метаданных» are queued: new files land there
+  /// after a library scan, and filled tracks leave the list.
   /// Writing starts as soon as a lookup returns.
   Future<
       ({
@@ -413,7 +413,10 @@ class LibraryService extends ChangeNotifier {
         int filled,
         bool cancelled,
       })> _runMetadataPipeline() async {
-    final tracks = List<Track>.from(_tracks);
+    final tracks = [
+      for (final track in tracksMissingMetadata())
+        if (_canSearchMetadata(track)) track,
+    ];
     final total = tracks.length;
     final toSearch = _Pipe<Track>();
     final toWrite = _Pipe<({Track track, MetadataDraft draft, JobLogEntry entry})>();
@@ -430,18 +433,18 @@ class LibraryService extends ChangeNotifier {
       final now = DateTime.now();
       if (!force && now.difference(lastUiAt) < uiInterval) return;
       lastUiAt = now;
-      final workTotal = emptyCount == 0 ? total : emptyCount;
-      final workDone = emptyCount == 0 ? scanned : searched;
+      final workTotal = total == 0 ? 1 : total;
       final tail = detail == null ? '' : ' — $detail';
       _scanProgress = ScanProgress(
-        processed: workDone.clamp(0, workTotal == 0 ? 0 : workTotal),
-        total: workTotal == 0 ? 1 : workTotal,
+        processed: searched.clamp(0, total),
+        total: workTotal,
         added: written,
         updated: found,
-        skipped: emptyCount,
-        currentFile:
-            'Отбор $scanned/$total · пустых $emptyCount · '
-            'найдено $found · записано $written$tail',
+        skipped: total,
+        currentFile: total == 0
+            ? 'Список «Без метаданных» пуст'
+            : 'Список $total · проверено $searched · '
+                'найдено $found · записано $written$tail',
       );
       notifyListeners();
     }
@@ -495,32 +498,15 @@ class LibraryService extends ChangeNotifier {
 
     final searchJobs = List.generate(3, (_) => searcher());
     final writeJob = writer();
+    emptyCount = total;
     try {
       for (final track in tracks) {
         if (_cancelFill) break;
         scanned++;
-        final artist = track.artist.trim();
-        final needs = artist.isNotEmpty &&
-            artist.toLowerCase() != 'unknown' &&
-            track.title.trim().isNotEmpty &&
-            MetaLookupService.needsFill(
-              album: track.album,
-              albumArtist: track.albumArtist,
-              year: track.year,
-              trackNumber: track.trackNumber,
-              trackTotal: track.trackTotal,
-              producer: track.producer,
-            );
-        if (needs) {
-          emptyCount++;
-          detail = 'Пустой: ${track.displayArtist} — ${track.displayTitle}';
-          toSearch.add(track);
-          publish();
-          await Future<void>.delayed(Duration.zero);
-        } else if (scanned % 80 == 0) {
-          publish();
-          await Future<void>.delayed(Duration.zero);
-        }
+        detail = 'В очереди: ${track.displayArtist} — ${track.displayTitle}';
+        toSearch.add(track);
+        publish();
+        await Future<void>.delayed(Duration.zero);
       }
     } finally {
       toSearch.close();
@@ -536,6 +522,13 @@ class LibraryService extends ChangeNotifier {
       filled: written,
       cancelled: _cancelFill,
     );
+  }
+
+  bool _canSearchMetadata(Track track) {
+    final artist = track.artist.trim();
+    return artist.isNotEmpty &&
+        artist.toLowerCase() != 'unknown' &&
+        track.title.trim().isNotEmpty;
   }
 
   Future<({MetadataDraft draft, JobLogEntry entry})?> _lookupMetadata(

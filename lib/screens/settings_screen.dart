@@ -289,7 +289,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               icon: Icons.travel_explore_rounded,
                               title: 'Поиск пустых метаданных',
                               subtitle:
-                                  'Без текста и жанра. Альбом, артист альбома, год, номер, продюсер.',
+                                  'Только список «Без метаданных». Альбом, артист альбома, год, номер, продюсер.',
                               onPressed: busy
                                   ? null
                                   : () => library.fillEmptyMetadata(),
