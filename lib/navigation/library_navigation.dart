@@ -103,10 +103,15 @@ String? _artistTracksSubtitle(
   return '$n треков в библиотеке';
 }
 
-Future<void> openArtistPage(BuildContext context, String artistName) async {
+Future<void> openArtistPage(
+  BuildContext context,
+  String artistName, {
+  bool producer = false,
+}) async {
   final library = context.read<LibraryService>();
-  final cardName = library.artistCardName(artistName);
-  final byArtist = library.tracksByArtist();
+  final cardName = producer ? artistName.trim() : library.artistCardName(artistName);
+  final byArtist =
+      producer ? library.tracksByProducer() : library.tracksByArtist();
   final tracks = byArtist[cardName] ??
       byArtist.entries
           .where((e) => e.key.toLowerCase() == cardName.toLowerCase())
@@ -156,6 +161,7 @@ Future<void> openArtistPage(BuildContext context, String artistName) async {
         playCount: playCount,
         chartRank: chartRank,
         trackPlayCounts: playCounts,
+        byProducer: producer,
       ),
     ),
   );

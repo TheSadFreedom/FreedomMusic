@@ -10,6 +10,8 @@ import 'package:path/path.dart' as p;
 import '../data/app_paths.dart';
 import '../data/database.dart';
 import '../data/track_key.dart';
+import '../models/artist_release.dart';
+import '../models/catalog_search.dart';
 import '../models/playlist.dart';
 import '../models/track.dart';
 import '../utils/lyrics_format.dart';
@@ -837,6 +839,166 @@ class LibraryService extends ChangeNotifier {
     final q = query.trim();
     if (q.isEmpty) return const [];
     return _tracks.where((t) => trackMatchesQuery(t, q)).toList();
+  }
+
+  /// Home search: each list is empty when nothing in that category matched.
+  CatalogSearch searchCatalog(String query) {
+    final tokens = query
+        .trim()
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
+        .where((token) => token.isNotEmpty)
+        .toList(growable: false);
+    if (tokens.isEmpty) return CatalogSearch.empty;
+
+    final tracks = <Track>[];
+    final artistTracks = <String, int>{};
+    final artistLabel = <String, String>{};
+    final producerTracks = <String, int>{};
+    final producerLabel = <String, String>{};
+    final albumGroups = <String, List<Track>>{};
+    final albumTitle = <String, String>{};
+    final albumArtist = <String, String>{};
+
+    for (final track in _tracks) {
+      if (trackMatchesQuery(track, query)) tracks.add(track);
+
+      _countPeople(track.artists, artistTracks, artistLabel, tokens);
+      _countPeople(
+        producerNames(track.producer),
+        producerTracks,
+        producerLabel,
+        tokens,
+      );
+
+      final album = track.displayAlbum.trim();
+      if (album.isEmpty || album.toLowerCase() == 'unknown') continue;
+      final artist = (track.albumArtist != null &&
+              track.albumArtist!.trim().isNotEmpty)
+          ? track.albumArtist!.trim()
+          : track.displayArtist;
+      final key = '${artist.toLowerCase()}\u0001${album.toLowerCase()}';
+      albumGroups.putIfAbsent(key, () => []).add(track);
+      albumTitle.putIfAbsent(key, () => album);
+      albumArtist.putIfAbsent(key, () => artist);
+    }
+
+    final artists = _people(artistTracks, artistLabel);
+    final producers = _people(producerTracks, producerLabel);
+    final albums = <SearchAlbum>[];
+    for (final entry in albumGroups.entries) {
+      final list = entry.value;
+      if (list.length <= 1) continue;
+      final title = albumTitle[entry.key]!;
+      final artist = albumArtist[entry.key]!;
+      if (!_tokensIn(_albumHay(title, artist), tokens)) continue;
+      list.sort((a, b) {
+        final byNumber = (a.trackNumber ?? 9999).compareTo(b.trackNumber ?? 9999);
+        if (byNumber != 0) return byNumber;
+        return a.displayTitle.toLowerCase().compareTo(b.displayTitle.toLowerCase());
+      });
+      final years = list.map((t) => t.year).whereType<int>().toList();
+      String? cover;
+      for (final track in list) {
+        final path = track.coverPath;
+        if (path != null && path.isNotEmpty) {
+          cover = path;
+          break;
+        }
+      }
+      albums.add(
+        SearchAlbum(
+          artist: artist,
+          release: ArtistRelease(
+            title: title,
+            tracks: list,
+            kind: ReleaseKind.album,
+            year: years.isEmpty ? null : years.reduce((a, b) => a > b ? a : b),
+            coverPath: cover,
+          ),
+        ),
+      );
+    }
+    albums.sort((a, b) {
+      final byTitle = a.release.title.toLowerCase().compareTo(
+            b.release.title.toLowerCase(),
+          );
+      if (byTitle != 0) return byTitle;
+      return a.artist.toLowerCase().compareTo(b.artist.toLowerCase());
+    });
+
+    final playlists = _playlists
+        .where((playlist) => _tokensIn(playlist.name, tokens))
+        .toList()
+      ..sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
+
+    return CatalogSearch(
+      tracks: tracks,
+      artists: artists,
+      producers: producers,
+      albums: albums,
+      playlists: playlists,
+    );
+  }
+
+  void _countPeople(
+    List<String> names,
+    Map<String, int> counts,
+    Map<String, String> labels,
+    List<String> tokens,
+  ) {
+    final seen = <String>{};
+    for (final rawName in names) {
+      final card = artistCardName(rawName);
+      final key = card.toLowerCase();
+      if (key.isEmpty || key == 'unknown' || !seen.add(key)) continue;
+      if (!_personMatches(card, tokens)) continue;
+      counts[key] = (counts[key] ?? 0) + 1;
+      labels.putIfAbsent(key, () => card);
+    }
+  }
+
+  String _albumHay(String title, String artist) {
+    final hay = StringBuffer('$title $artist');
+    for (final name in splitArtists(artist)) {
+      final card = artistCardName(name);
+      hay.write(' ');
+      hay.write(card);
+      for (final alias in aliasLabelsForCard(card)) {
+        hay.write(' ');
+        hay.write(alias);
+      }
+    }
+    return hay.toString();
+  }
+
+  bool _personMatches(String card, List<String> tokens) {
+    final hay = StringBuffer(card.toLowerCase());
+    for (final alias in aliasLabelsForCard(card)) {
+      hay.write(' ');
+      hay.write(alias.toLowerCase());
+    }
+    return _tokensIn(hay.toString(), tokens);
+  }
+
+  List<SearchPerson> _people(Map<String, int> counts, Map<String, String> labels) {
+    final people = [
+      for (final entry in counts.entries)
+        SearchPerson(name: labels[entry.key] ?? entry.key, trackCount: entry.value),
+    ]..sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
+    return people;
+  }
+
+  bool _tokensIn(String hay, List<String> tokens) {
+    final lower = hay.toLowerCase();
+    for (final token in tokens) {
+      if (!lower.contains(token)) return false;
+    }
+    return true;
   }
 
   Future<void> recordPlay(String trackKey) => _db.recordPlay(trackKey);

@@ -5,7 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
+import '../models/catalog_search.dart';
+import '../models/playlist.dart';
 import '../models/track.dart';
+import '../navigation/library_navigation.dart';
 import '../services/library_service.dart';
 import '../services/player_service.dart';
 import '../theme/app_theme.dart';
@@ -13,6 +16,8 @@ import '../utils/breakpoints.dart';
 import '../widgets/home_hero.dart';
 import '../widgets/track_meta_links.dart';
 import '../widgets/track_tile.dart';
+import 'playlists_screen.dart';
+import 'release_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -38,7 +43,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final library = context.watch<LibraryService>();
     final playing = context.select<PlayerService, bool>((p) => p.playing);
     final searching = _query.trim().isNotEmpty;
-    final results = searching ? library.search(_query) : const <Track>[];
+    final results = searching ? library.searchCatalog(_query) : CatalogSearch.empty;
 
     return HomeStage(
       playing: playing,
@@ -72,12 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           alignment: Alignment.topCenter,
                           child: ConstrainedBox(
                             constraints: const BoxConstraints(maxWidth: 720),
-                            child: _SearchPanel(
-                              results: results,
-                              onPlay: (i) => context
-                                  .read<PlayerService>()
-                                  .playTracks(results, startIndex: i),
-                            ),
+                            child: _SearchPanel(results: results),
                           ),
                         ),
                       )
@@ -127,7 +127,7 @@ class _TopSearch extends StatelessWidget {
           ),
           cursorColor: AppTheme.lime,
           decoration: InputDecoration(
-            hintText: 'Название, исполнитель, альбом, текст…',
+            hintText: 'Треки, артисты, альбомы, плейлисты…',
             hintStyle: GoogleFonts.figtree(color: AppTheme.paperMuted),
             prefixIcon: const Icon(Icons.search, color: AppTheme.paperMuted),
             suffixIcon: query.isEmpty
@@ -402,13 +402,9 @@ class _NowPlaying extends StatelessWidget {
 }
 
 class _SearchPanel extends StatelessWidget {
-  const _SearchPanel({
-    required this.results,
-    required this.onPlay,
-  });
+  const _SearchPanel({required this.results});
 
-  final List<Track> results;
-  final void Function(int index) onPlay;
+  final CatalogSearch results;
 
   @override
   Widget build(BuildContext context) {
@@ -424,42 +420,309 @@ class _SearchPanel extends StatelessWidget {
       );
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          '${results.length} совпадений',
-          textAlign: TextAlign.center,
-          style: GoogleFonts.figtree(
+    final library = context.read<LibraryService>();
+    var first = true;
+    Widget header(String title) {
+      final top = first ? 12.0 : 20.0;
+      first = false;
+      return Padding(
+        padding: EdgeInsets.fromLTRB(16, top, 16, 4),
+        child: Text(
+          title,
+          style: GoogleFonts.syne(
             color: AppTheme.lime,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.3,
+            fontSize: 13,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.8,
           ),
         ),
-        const SizedBox(height: 8),
-        Expanded(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.28),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: ListView.builder(
+      );
+    }
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.28),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: CustomScrollView(
+          slivers: [
+            if (results.tracks.isNotEmpty) ...[
+              SliverToBoxAdapter(child: header('Треки')),
+              SliverFixedExtentList(
                 itemExtent: 64,
-                itemCount: results.length,
-                itemBuilder: (context, index) {
-                  final track = results[index];
-                  return TrackTile(
-                    track: track,
-                    onTap: () => onPlay(index),
-                  );
-                },
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final track = results.tracks[index];
+                    return TrackTile(
+                      track: track,
+                      onTap: () => context.read<PlayerService>().playTracks(
+                            results.tracks,
+                            startIndex: index,
+                          ),
+                    );
+                  },
+                  childCount: results.tracks.length,
+                ),
               ),
-            ),
+            ],
+            if (results.artists.isNotEmpty) ...[
+              SliverToBoxAdapter(child: header('Артисты')),
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final person = results.artists[index];
+                    return _SearchHit(
+                      title: person.name,
+                      subtitle: _countLabel(person.trackCount),
+                      leading: _PersonMark(
+                        photoPath: library.artistPhotoPath(person.name),
+                        icon: Icons.person_rounded,
+                      ),
+                      onTap: () => openArtistPage(context, person.name),
+                    );
+                  },
+                  childCount: results.artists.length,
+                ),
+              ),
+            ],
+            if (results.producers.isNotEmpty) ...[
+              SliverToBoxAdapter(child: header('Продюсеры')),
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final person = results.producers[index];
+                    return _SearchHit(
+                      title: person.name,
+                      subtitle: _countLabel(person.trackCount),
+                      leading: _PersonMark(
+                        photoPath: library.artistPhotoPath(person.name),
+                        icon: Icons.headphones_rounded,
+                      ),
+                      onTap: () => openArtistPage(
+                        context,
+                        person.name,
+                        producer: true,
+                      ),
+                    );
+                  },
+                  childCount: results.producers.length,
+                ),
+              ),
+            ],
+            if (results.albums.isNotEmpty) ...[
+              SliverToBoxAdapter(child: header('Альбомы')),
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final album = results.albums[index];
+                    final year = album.release.year;
+                    return _SearchHit(
+                      title: album.release.title,
+                      subtitle: year == null
+                          ? album.artist
+                          : '${album.artist} · $year',
+                      leading: _CoverMark(path: album.release.coverPath),
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => ReleaseDetailScreen(
+                              release: album.release,
+                              primaryArtist: album.artist,
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                  childCount: results.albums.length,
+                ),
+              ),
+            ],
+            if (results.playlists.isNotEmpty) ...[
+              SliverToBoxAdapter(child: header('Плейлисты')),
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final playlist = results.playlists[index];
+                    return _SearchHit(
+                      title: playlist.name,
+                      subtitle: _countLabel(playlist.trackCount),
+                      leading: _PlaylistMark(playlist: playlist),
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) =>
+                                PlaylistDetailScreen(playlistId: playlist.id),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                  childCount: results.playlists.length,
+                ),
+              ),
+            ],
+            const SliverToBoxAdapter(child: SizedBox(height: 12)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _countLabel(int count) {
+  final mod10 = count % 10;
+  final mod100 = count % 100;
+  if (mod10 == 1 && mod100 != 11) return '$count трек';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return '$count трека';
+  }
+  return '$count треков';
+}
+
+class _SearchHit extends StatelessWidget {
+  const _SearchHit({
+    required this.leading,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final Widget leading;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        mouseCursor: SystemMouseCursors.click,
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              leading,
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.figtree(
+                        color: AppTheme.paper,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.figtree(
+                        color: AppTheme.paperMuted,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
-      ],
+      ),
+    );
+  }
+}
+
+class _PersonMark extends StatelessWidget {
+  const _PersonMark({required this.photoPath, required this.icon});
+
+  final String? photoPath;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final path = photoPath;
+    Widget child = Icon(icon, color: AppTheme.ink, size: 22);
+    if (path != null && File(path).existsSync()) {
+      child = Image.file(File(path), width: 40, height: 40, fit: BoxFit.cover);
+    }
+    return ClipOval(
+      child: ColoredBox(
+        color: AppTheme.lime,
+        child: SizedBox(width: 40, height: 40, child: child),
+      ),
+    );
+  }
+}
+
+class _CoverMark extends StatelessWidget {
+  const _CoverMark({required this.path});
+
+  final String? path;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget child = const Icon(Icons.album, color: AppTheme.mossBright, size: 22);
+    final cover = path;
+    if (cover != null && File(cover).existsSync()) {
+      child = Image.file(File(cover), width: 40, height: 40, fit: BoxFit.cover);
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: ColoredBox(
+        color: AppTheme.inkLift,
+        child: SizedBox(width: 40, height: 40, child: child),
+      ),
+    );
+  }
+}
+
+class _PlaylistMark extends StatelessWidget {
+  const _PlaylistMark({required this.playlist});
+
+  final Playlist playlist;
+
+  @override
+  Widget build(BuildContext context) {
+    final (Color background, Color foreground, IconData icon) = switch (playlist.systemKind) {
+      Playlist.kindNew => (
+          const Color(0xFFFFDB4D),
+          const Color(0xFF141414),
+          Icons.fiber_new_rounded,
+        ),
+      Playlist.kindIncomplete => (
+          AppTheme.lime,
+          const Color(0xFF141414),
+          Icons.article_outlined,
+        ),
+      Playlist.kindTrash => (
+          const Color(0xFF3A3330),
+          AppTheme.paper,
+          Icons.delete_outline_rounded,
+        ),
+      _ => (AppTheme.inkLift, AppTheme.mossBright, Icons.queue_music),
+    };
+    final cover = playlist.coverPath;
+    Widget child = Icon(icon, color: foreground, size: 22);
+    if (cover != null && cover.isNotEmpty && File(cover).existsSync()) {
+      child = Image.file(File(cover), width: 40, height: 40, fit: BoxFit.cover);
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: ColoredBox(
+        color: background,
+        child: SizedBox(width: 40, height: 40, child: child),
+      ),
     );
   }
 }
