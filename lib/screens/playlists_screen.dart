@@ -187,6 +187,7 @@ class PlaylistsScreen extends StatelessWidget {
       coverPath: playlist.coverPath,
       icon: _systemIcon(playlist),
       iconColor: _systemIconColor(playlist),
+      systemKind: playlist.systemKind,
       onOpen: () {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
@@ -326,6 +327,7 @@ class _CoverItem {
     this.coverPath,
     this.icon,
     this.iconColor,
+    this.systemKind,
     this.onRename,
     this.onDelete,
   });
@@ -336,6 +338,7 @@ class _CoverItem {
   final String? coverPath;
   final IconData? icon;
   final Color? iconColor;
+  final String? systemKind;
   final VoidCallback onOpen;
   final VoidCallback? onRename;
   final VoidCallback? onDelete;
@@ -528,16 +531,21 @@ class _CoverCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final path = item.coverPath;
-    Widget cover = ColoredBox(
-      color: AppTheme.inkLift,
-      child: Icon(
-        item.icon ?? Icons.queue_music,
-        color: item.iconColor ?? AppTheme.mossBright,
-        size: 40,
-      ),
-    );
+    final systemKind = item.systemKind;
+    Widget cover;
     if (path != null && File(path).existsSync()) {
       cover = Image.file(File(path), fit: BoxFit.cover);
+    } else if (systemKind != null) {
+      cover = _SystemCover(kind: systemKind);
+    } else {
+      cover = ColoredBox(
+        color: AppTheme.inkLift,
+        child: Icon(
+          item.icon ?? Icons.queue_music,
+          color: item.iconColor ?? AppTheme.mossBright,
+          size: 40,
+        ),
+      );
     }
 
     return InkWell(
@@ -1227,28 +1235,16 @@ class _EditableCoverState extends State<_EditableCover> {
   @override
   Widget build(BuildContext context) {
     final kind = widget.systemKind;
-    final icon = switch (kind) {
-      Playlist.kindTrash => Icons.delete_outline_rounded,
-      Playlist.kindNew => Icons.fiber_new_rounded,
-      Playlist.kindIncomplete => Icons.article_outlined,
-      _ => Icons.queue_music,
-    };
-    final iconColor = switch (kind) {
-      Playlist.kindTrash => AppTheme.paperMuted,
-      Playlist.kindNew => const Color(0xFFFFDB4D),
-      Playlist.kindIncomplete => AppTheme.lime,
-      _ => AppTheme.mossBright,
-    };
-    Widget image = ColoredBox(
-      color: AppTheme.inkLift,
-      child: Icon(
-        icon,
-        size: widget.size * 0.35,
-        color: iconColor,
-      ),
-    );
+    Widget image;
     if (widget.path != null && File(widget.path!).existsSync()) {
       image = Image.file(File(widget.path!), fit: BoxFit.cover);
+    } else if (kind != null) {
+      image = _SystemCover(kind: kind);
+    } else {
+      image = const ColoredBox(
+        color: AppTheme.inkLift,
+        child: Icon(Icons.queue_music, color: AppTheme.mossBright, size: 72),
+      );
     }
 
     final editable = widget.onEdit != null;
@@ -1290,6 +1286,46 @@ class _EditableCoverState extends State<_EditableCover> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _SystemCover extends StatelessWidget {
+  const _SystemCover({required this.kind});
+
+  final String kind;
+
+  @override
+  Widget build(BuildContext context) {
+    final (Color background, Color foreground, IconData icon) = switch (kind) {
+      Playlist.kindNew => (
+          const Color(0xFFFFDB4D),
+          const Color(0xFF141414),
+          Icons.fiber_new_rounded,
+        ),
+      Playlist.kindIncomplete => (
+          AppTheme.lime,
+          const Color(0xFF141414),
+          Icons.article_outlined,
+        ),
+      Playlist.kindTrash => (
+          const Color(0xFF3A3330),
+          AppTheme.paper,
+          Icons.delete_outline_rounded,
+        ),
+      _ => (AppTheme.inkLift, AppTheme.mossBright, Icons.queue_music),
+    };
+
+    return ColoredBox(
+      color: background,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final side = constraints.biggest.shortestSide;
+          return Center(
+            child: Icon(icon, color: foreground, size: side * 0.72),
+          );
+        },
       ),
     );
   }
