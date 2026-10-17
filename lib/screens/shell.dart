@@ -1,3 +1,4 @@
+import 'dart:ffi';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -38,12 +39,15 @@ class _AppShellState extends State<AppShell> {
   @override
   void initState() {
     super.initState();
+    _lastKeyboardLayout = _keyboardLayout(0);
     HardwareKeyboard.instance.addHandler(_onHardwareKey);
+    FocusManager.instance.addEarlyKeyEventHandler(_recoverLayoutSwitchKey);
   }
 
   @override
   void dispose() {
     HardwareKeyboard.instance.removeHandler(_onHardwareKey);
+    FocusManager.instance.removeEarlyKeyEventHandler(_recoverLayoutSwitchKey);
     super.dispose();
   }
 
@@ -130,6 +134,30 @@ class _AppShellState extends State<AppShell> {
     final ctx = primary?.context;
     if (ctx == null) return false;
     return ctx.findAncestorStateOfType<EditableTextState>() != null;
+  }
+
+  /// The first letter after Alt+Shift / Win+Space never reaches the field:
+  /// the switch latches Ctrl or Alt, so Flutter treats that letter as a
+  /// shortcut. The latch is visible to the system too, so it cannot be
+  /// detected by comparing key state. The layout id is the signal instead.
+  KeyEventResult _recoverLayoutSwitchKey(KeyEvent event) {
+    if (!Platform.isWindows) return KeyEventResult.ignored;
+    final layout = _keyboardLayout(0);
+    if (layout != _lastKeyboardLayout) {
+      _lastKeyboardLayout = layout;
+      _pendingLayoutChar = true;
+    }
+    if (!_pendingLayoutChar || event is! KeyDownEvent || event.synthesized) {
+      return KeyEventResult.ignored;
+    }
+    if (_isLayoutModifier(event.logicalKey) || !_textInputFocused) {
+      return KeyEventResult.ignored;
+    }
+    final text = _typedCharacter(event);
+    _pendingLayoutChar = false;
+    if (text == null) return KeyEventResult.ignored;
+    _insertIntoFocusedField(text);
+    return KeyEventResult.handled;
   }
 
   bool _onHardwareKey(KeyEvent event) {
@@ -358,4 +386,53 @@ class _RailButton extends StatelessWidget {
       ),
     );
   }
+}
+
+int _lastKeyboardLayout = 0;
+bool _pendingLayoutChar = false;
+
+final int Function(int threadId) _keyboardLayout = DynamicLibrary.open('user32.dll')
+    .lookupFunction<IntPtr Function(Uint32), int Function(int)>('GetKeyboardLayout');
+
+bool _isLayoutModifier(LogicalKeyboardKey key) {
+  return key == LogicalKeyboardKey.shift ||
+      key == LogicalKeyboardKey.shiftLeft ||
+      key == LogicalKeyboardKey.shiftRight ||
+      key == LogicalKeyboardKey.control ||
+      key == LogicalKeyboardKey.controlLeft ||
+      key == LogicalKeyboardKey.controlRight ||
+      key == LogicalKeyboardKey.alt ||
+      key == LogicalKeyboardKey.altLeft ||
+      key == LogicalKeyboardKey.altRight ||
+      key == LogicalKeyboardKey.meta ||
+      key == LogicalKeyboardKey.metaLeft ||
+      key == LogicalKeyboardKey.metaRight;
+}
+
+String? _typedCharacter(KeyDownEvent event) {
+  final character = event.character;
+  if (character != null && character.length == 1) {
+    final code = character.codeUnitAt(0);
+    if (code > 0x1f && code != 0x7f) return character;
+  }
+  final label = event.logicalKey.keyLabel;
+  if (label.length == 1) return label.toLowerCase();
+  return null;
+}
+
+void _insertIntoFocusedField(String text) {
+  final state = FocusManager.instance.primaryFocus?.context
+      ?.findAncestorStateOfType<EditableTextState>();
+  if (state == null) return;
+  final value = state.textEditingValue;
+  final selection = value.selection;
+  final next = selection.isValid
+      ? value.replaced(selection, text)
+      : TextEditingValue(
+          text: value.text + text,
+          selection: TextSelection.collapsed(
+            offset: value.text.length + text.length,
+          ),
+        );
+  state.userUpdateTextEditingValue(next, SelectionChangedCause.keyboard);
 }
