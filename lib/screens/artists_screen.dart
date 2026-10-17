@@ -8,23 +8,8 @@ import 'package:provider/provider.dart';
 import '../models/track.dart';
 import '../services/library_service.dart';
 import '../theme/app_theme.dart';
-import '../widgets/pill_segmented.dart';
 import '../widgets/screen_title.dart';
 import 'artist_detail_screen.dart';
-
-enum ArtistSort {
-  chart,
-  name,
-  trackCount,
-}
-
-extension on ArtistSort {
-  String get label => switch (this) {
-        ArtistSort.chart => 'Чарт',
-        ArtistSort.name => 'Название',
-        ArtistSort.trackCount => 'Треки',
-      };
-}
 
 class _ArtistRow {
   const _ArtistRow({
@@ -60,7 +45,6 @@ class ArtistsScreen extends StatefulWidget {
 }
 
 class _ArtistsScreenState extends State<ArtistsScreen> {
-  ArtistSort _sort = ArtistSort.chart;
   Map<String, int> _playCounts = {};
   bool _loadingCounts = true;
   bool _refreshing = false;
@@ -139,20 +123,7 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
           .toList();
     }
 
-    switch (_sort) {
-      case ArtistSort.chart:
-        ranked.sort((a, b) => a.rank.compareTo(b.rank));
-      case ArtistSort.name:
-        ranked.sort(
-          (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-        );
-      case ArtistSort.trackCount:
-        ranked.sort((a, b) {
-          final byCount = b.trackCount.compareTo(a.trackCount);
-          if (byCount != 0) return byCount;
-          return a.name.toLowerCase().compareTo(b.name.toLowerCase());
-        });
-    }
+    ranked.sort((a, b) => a.rank.compareTo(b.rank));
     return ranked;
   }
 
@@ -189,10 +160,7 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
       children: [
         ScreenTitle(
           title: title,
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
+          trailing: IconButton(
                 onPressed: _refreshing ? null : _loadPlayCounts,
                 visualDensity: VisualDensity.compact,
                 icon: _refreshing
@@ -202,16 +170,6 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.refresh_rounded, color: AppTheme.paper),
-              ),
-              PillSegmented<ArtistSort>(
-                segments: [
-                  for (final s in ArtistSort.values)
-                    PillSegment(value: s, label: s.label),
-                ],
-                selected: _sort,
-                onChanged: (s) => setState(() => _sort = s),
-              ),
-            ],
           ),
         ),
         Padding(
@@ -258,7 +216,7 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
           ),
         ),
         Expanded(
-          child: _loadingCounts && _sort == ArtistSort.chart
+          child: _loadingCounts
               ? const Center(child: CircularProgressIndicator())
               : rows.isEmpty
                   ? Center(
