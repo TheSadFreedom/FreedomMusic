@@ -827,6 +827,8 @@ class AppDatabase {
 
   /// Creates the «Без метаданных» system playlist if missing. Returns its id.
   Future<int> ensureIncompletePlaylist() async {
+    const description =
+        'Треки, у которых не заполнены альбом, артист альбома, год, номер или число треков.';
     final existing = await _db.query(
       'playlists',
       columns: ['id'],
@@ -835,15 +837,21 @@ class AppDatabase {
       limit: 1,
     );
     if (existing.isNotEmpty) {
-      return existing.first['id'] as int;
+      final id = existing.first['id'] as int;
+      await _db.update(
+        'playlists',
+        {'description': description},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      return id;
     }
     final now = DateTime.now().millisecondsSinceEpoch;
     return _db.insert('playlists', {
       'name': 'Без метаданных',
       'created_at': now,
       'updated_at': now,
-      'description':
-          'Треки, у которых не заполнены альбом, артист альбома, год, номер или продюсер.',
+      'description': description,
       'system_kind': Playlist.kindIncomplete,
     });
   }

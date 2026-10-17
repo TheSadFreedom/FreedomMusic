@@ -736,10 +736,12 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
       body: FutureBuilder<List<Track>>(
         future: _future,
         builder: (context, snapshot) {
-          final tracks = [
-            for (final t in snapshot.data ?? const <Track>[])
-              library.trackByKey(t.trackKey) ?? t,
-          ];
+          final tracks = isIncomplete
+              ? library.tracksMissingMetadata()
+              : [
+                  for (final t in snapshot.data ?? const <Track>[])
+                    library.trackByKey(t.trackKey) ?? t,
+                ];
           final filtered = _query.trim().isEmpty
               ? tracks
               : tracks
@@ -775,8 +777,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
               ),
               SliverToBoxAdapter(
                 child: _PlaylistHeader(
-                  playlist: isIncomplete &&
-                          snapshot.connectionState == ConnectionState.done
+                  playlist: isIncomplete
                       ? pl.copyWith(trackCount: tracks.length)
                       : pl,
                   dateLabel: dateLabel,
@@ -814,7 +815,8 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                   ),
                 ),
               ),
-              if (snapshot.connectionState != ConnectionState.done)
+              if (!isIncomplete &&
+                  snapshot.connectionState != ConnectionState.done)
                 const SliverFillRemaining(
                   child: Center(child: CircularProgressIndicator()),
                 )
@@ -1120,7 +1122,7 @@ class _PlaylistHeader extends StatelessWidget {
                       : isNew
                           ? 'Автоматически за последние ${Playlist.newTrackDays} дней'
                           : isIncomplete
-                              ? 'Альбом, артист альбома, год, номер или продюсер не заполнены'
+                              ? 'Альбом, артист альбома, год, номер или число треков не заполнены'
                               : 'Добавить описание...')
                   : playlist.description!,
               textAlign: wide ? TextAlign.left : TextAlign.center,

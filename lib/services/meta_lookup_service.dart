@@ -49,14 +49,15 @@ class MetaLookupService {
     _client = null;
   }
 
-  /// True if album/year/track#/album artist/producer should be filled.
+  /// True while album, album artist, year, track number, or track total
+  /// is still missing. Producer is filled when found, but its absence
+  /// does not keep the track in «Без метаданных».
   static bool needsFill({
     required String album,
     String? albumArtist,
     int? year,
     int? trackNumber,
     int? trackTotal,
-    String? producer,
   }) {
     return _albumMissing(album) ||
         albumArtistMissing(albumArtist) ||
@@ -64,17 +65,12 @@ class MetaLookupService {
         trackNumber == null ||
         trackNumber < 1 ||
         trackTotal == null ||
-        trackTotal < 1 ||
-        _producerMissing(producer);
+        trackTotal < 1;
   }
 
   static bool albumArtistMissing(String? albumArtist) {
     final a = albumArtist?.trim().toLowerCase() ?? '';
     return a.isEmpty || a == 'unknown';
-  }
-
-  static bool _producerMissing(String? producer) {
-    return producer == null || producer.trim().isEmpty;
   }
 
   static bool _albumMissing(String album) {

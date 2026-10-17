@@ -158,7 +158,6 @@ class LibraryService extends ChangeNotifier {
               year: track.year,
               trackNumber: track.trackNumber,
               trackTotal: track.trackTotal,
-              producer: track.producer,
             ))
           track.trackKey,
     ]);
@@ -540,7 +539,6 @@ class LibraryService extends ChangeNotifier {
       year: track.year,
       trackNumber: track.trackNumber,
       trackTotal: track.trackTotal,
-      producer: track.producer,
     )) {
       return null;
     }
@@ -1100,7 +1098,7 @@ class LibraryService extends ChangeNotifier {
     }
   }
 
-  /// Tracks still missing album, album artist, year, number, or producer.
+  /// Tracks still missing album, album artist, year, number, or track total.
   List<Track> tracksMissingMetadata() {
     return [
       for (final track in _tracks)
@@ -1111,7 +1109,6 @@ class LibraryService extends ChangeNotifier {
               year: track.year,
               trackNumber: track.trackNumber,
               trackTotal: track.trackTotal,
-              producer: track.producer,
             ))
           track,
     ];
