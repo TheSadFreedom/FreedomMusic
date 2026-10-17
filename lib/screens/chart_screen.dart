@@ -16,12 +16,9 @@ import '../theme/app_theme.dart';
 import '../utils/duration_format.dart';
 import '../utils/playlist_actions.dart';
 import '../utils/trash_actions.dart';
-import '../widgets/pill_segmented.dart';
 import '../widgets/track_cover_play.dart';
 import '../widgets/track_meta_links.dart';
 import '../widgets/track_overflow_menu.dart';
-
-enum _ChartKind { tracks, albums }
 
 enum _RankDelta { up, down, same, newEntry }
 
@@ -70,7 +67,6 @@ class ChartScreen extends StatefulWidget {
 class _ChartScreenState extends State<ChartScreen> {
   Future<_ChartData>? _future;
   bool _refreshing = false;
-  _ChartKind _kind = _ChartKind.tracks;
 
   @override
   void didChangeDependencies() {
@@ -234,14 +230,6 @@ class _ChartScreenState extends State<ChartScreen> {
                   ),
                 ),
               ),
-              PillSegmented<_ChartKind>(
-                segments: const [
-                  PillSegment(value: _ChartKind.tracks, label: 'Треки'),
-                  PillSegment(value: _ChartKind.albums, label: 'Альбомы'),
-                ],
-                selected: _kind,
-                onChanged: (kind) => setState(() => _kind = kind),
-              ),
               IconButton(
                 onPressed: _refreshing ? null : _reload,
                 icon: _refreshing
@@ -270,40 +258,104 @@ class _ChartScreenState extends State<ChartScreen> {
                       return const Center(child: CircularProgressIndicator());
                     }
                     final data = snapshot.data;
-                    if (data == null) {
-                      return const SizedBox.shrink();
-                    }
-                    if (_kind == _ChartKind.albums) {
-                      return _AlbumChartList(rows: data.albums);
-                    }
-                    final rows = data.tracks;
-                    final tracks = rows.map((r) => r.entry.track).toList();
-                    return ListView.builder(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      // Fixed height lets a fling jump by index instead of
-                      // laying out every row in between on one frame.
-                      itemExtent: 64,
-                      itemCount: rows.length,
-                      itemBuilder: (context, index) {
-                        final row = rows[index];
-                        return _ChartTrackRow(
-                          row: row,
-                          onPlay: () =>
-                              player.playTracks(tracks, startIndex: index),
-                          onEdit: () async {
-                            final ok = await openMetadataEditor(
-                              context,
-                              row.entry.track,
-                            );
-                            if (ok && mounted) _reload();
-                          },
-                        );
-                      },
+                    if (data == null) return const SizedBox.shrink();
+                    final tracks = data.tracks.map((r) => r.entry.track).toList();
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(
+                          child: _ChartColumn(
+                            title: 'Треки',
+                            child: data.tracks.isEmpty
+                                ? const _ChartEmpty(text: 'Нет треков')
+                                : ListView.builder(
+                                    padding: const EdgeInsets.only(bottom: 16),
+                                    itemExtent: 64,
+                                    itemCount: data.tracks.length,
+                                    itemBuilder: (context, index) {
+                                      final row = data.tracks[index];
+                                      return _ChartTrackRow(
+                                        row: row,
+                                        onPlay: () => player.playTracks(
+                                          tracks,
+                                          startIndex: index,
+                                        ),
+                                        onEdit: () async {
+                                          final ok = await openMetadataEditor(
+                                            context,
+                                            row.entry.track,
+                                          );
+                                          if (ok && mounted) _reload();
+                                        },
+                                      );
+                                    },
+                                  ),
+                          ),
+                        ),
+                        const VerticalDivider(
+                          width: 1,
+                          thickness: 1,
+                          color: Color(0x14F2EDE4),
+                        ),
+                        Expanded(
+                          child: _ChartColumn(
+                            title: 'Альбомы',
+                            child: _AlbumChartList(rows: data.albums),
+                          ),
+                        ),
+                      ],
                     );
                   },
                 ),
         ),
       ],
+    );
+  }
+}
+
+class _ChartColumn extends StatelessWidget {
+  const _ChartColumn({required this.title, required this.child});
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 16, 8),
+          child: Text(
+            title,
+            style: GoogleFonts.syne(
+              color: AppTheme.paper,
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        Expanded(child: child),
+      ],
+    );
+  }
+}
+
+class _ChartEmpty extends StatelessWidget {
+  const _ChartEmpty({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(
+        text,
+        style: GoogleFonts.figtree(
+          color: AppTheme.paperMuted,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 }
