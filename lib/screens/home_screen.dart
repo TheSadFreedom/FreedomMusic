@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
@@ -15,7 +16,6 @@ import '../theme/app_theme.dart';
 import '../utils/breakpoints.dart';
 import '../widgets/home_hero.dart';
 import '../widgets/track_meta_links.dart';
-import '../widgets/track_tile.dart';
 import 'playlists_screen.dart';
 import 'release_detail_screen.dart';
 
@@ -30,20 +30,38 @@ class _HomeScreenState extends State<HomeScreen> {
   final _searchController = TextEditingController();
   final _searchFocus = FocusNode();
   String _query = '';
+  String _appliedQuery = '';
+  Timer? _searchTimer;
 
   @override
   void dispose() {
+    _searchTimer?.cancel();
     _searchController.dispose();
     _searchFocus.dispose();
     super.dispose();
+  }
+
+  void _scheduleSearch(String value) {
+    _searchTimer?.cancel();
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      if (_appliedQuery.isEmpty) return;
+      setState(() => _appliedQuery = '');
+      return;
+    }
+    _searchTimer = Timer(const Duration(seconds: 1), () {
+      if (!mounted) return;
+      setState(() => _appliedQuery = value);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final library = context.watch<LibraryService>();
     final playing = context.select<PlayerService, bool>((p) => p.playing);
-    final searching = _query.trim().isNotEmpty;
-    final results = searching ? library.searchCatalog(_query) : CatalogSearch.empty;
+    final searching = _appliedQuery.trim().isNotEmpty;
+    final results =
+        searching ? library.searchCatalog(_appliedQuery) : CatalogSearch.empty;
 
     return HomeStage(
       playing: playing,
@@ -57,10 +75,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 controller: _searchController,
                 focusNode: _searchFocus,
                 query: _query,
-                onChanged: (v) => setState(() => _query = v),
+                onChanged: (v) {
+                  setState(() => _query = v);
+                  _scheduleSearch(v);
+                },
                 onClear: () {
+                  _searchTimer?.cancel();
                   _searchController.clear();
-                  setState(() => _query = '');
+                  setState(() {
+                    _query = '';
+                    _appliedQuery = '';
+                  });
                 },
               ),
             ),
@@ -73,13 +98,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: searching
                     ? KeyedSubtree(
                         key: const ValueKey('search'),
-                        child: Align(
-                          alignment: Alignment.topCenter,
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 720),
-                            child: _SearchPanel(results: results),
-                          ),
-                        ),
+                        child: _SearchPanel(results: results),
                       )
                     : const KeyedSubtree(
                         key: ValueKey('hero'),
@@ -401,10 +420,70 @@ class _NowPlaying extends StatelessWidget {
   }
 }
 
+class _SearchSection {
+  const _SearchSection({
+    required this.title,
+    required this.count,
+    required this.itemBuilder,
+  });
+
+  final String title;
+  final int count;
+  final Widget Function(BuildContext context, int index) itemBuilder;
+}
+
+class _HitStyle {
+  const _HitStyle({
+    required this.rowHeight,
+    required this.mark,
+    required this.title,
+    required this.detail,
+    required this.gap,
+  });
+
+  static const compact = _HitStyle(
+    rowHeight: 30,
+    mark: 22,
+    title: 13,
+    detail: 12,
+    gap: 8,
+  );
+
+  static const roomy = _HitStyle(
+    rowHeight: 58,
+    mark: 42,
+    title: 16,
+    detail: 13,
+    gap: 14,
+  );
+
+  final double rowHeight;
+  final double mark;
+  final double title;
+  final double detail;
+  final double gap;
+
+  static _HitStyle of(BuildContext context) {
+    final scope = context.dependOnInheritedWidgetOfExactType<_HitStyleScope>();
+    return scope?.style ?? compact;
+  }
+}
+
+class _HitStyleScope extends InheritedWidget {
+  const _HitStyleScope({required this.style, required super.child});
+
+  final _HitStyle style;
+
+  @override
+  bool updateShouldNotify(_HitStyleScope oldWidget) => style != oldWidget.style;
+}
+
 class _SearchPanel extends StatelessWidget {
   const _SearchPanel({required this.results});
 
   final CatalogSearch results;
+
+  static const _rowHeight = 30.0;
 
   @override
   Widget build(BuildContext context) {
@@ -421,23 +500,114 @@ class _SearchPanel extends StatelessWidget {
     }
 
     final library = context.read<LibraryService>();
-    var first = true;
-    Widget header(String title) {
-      final top = first ? 12.0 : 20.0;
-      first = false;
-      return Padding(
-        padding: EdgeInsets.fromLTRB(16, top, 16, 4),
-        child: Text(
-          title,
-          style: GoogleFonts.syne(
-            color: AppTheme.lime,
-            fontSize: 13,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.8,
-          ),
+    final sections = <_SearchSection>[
+      if (results.tracks.isNotEmpty)
+        _SearchSection(
+          title: 'Треки',
+          count: results.tracks.length,
+          itemBuilder: (context, index) {
+            final track = results.tracks[index];
+            final mark = _HitStyle.of(context).mark;
+            return _CompactHit(
+              title: track.displayTitle,
+              detail: track.displayArtist,
+              leading: _CoverMark(path: track.coverPath, size: mark),
+              onTap: () => context.read<PlayerService>().playTracks(
+                    results.tracks,
+                    startIndex: index,
+                  ),
+            );
+          },
         ),
-      );
-    }
+      if (results.artists.isNotEmpty)
+        _SearchSection(
+          title: 'Артисты',
+          count: results.artists.length,
+          itemBuilder: (context, index) {
+            final person = results.artists[index];
+            final mark = _HitStyle.of(context).mark;
+            return _CompactHit(
+              title: person.name,
+              detail: _countLabel(person.trackCount),
+              leading: _PersonMark(
+                photoPath: library.artistPhotoPath(person.name),
+                icon: Icons.person_rounded,
+                size: mark,
+              ),
+              onTap: () => openArtistPage(context, person.name),
+            );
+          },
+        ),
+      if (results.producers.isNotEmpty)
+        _SearchSection(
+          title: 'Продюсеры',
+          count: results.producers.length,
+          itemBuilder: (context, index) {
+            final person = results.producers[index];
+            final mark = _HitStyle.of(context).mark;
+            return _CompactHit(
+              title: person.name,
+              detail: _countLabel(person.trackCount),
+              leading: _PersonMark(
+                photoPath: library.artistPhotoPath(person.name),
+                icon: Icons.headphones_rounded,
+                size: mark,
+              ),
+              onTap: () => openArtistPage(
+                context,
+                person.name,
+                producer: true,
+              ),
+            );
+          },
+        ),
+      if (results.albums.isNotEmpty)
+        _SearchSection(
+          title: 'Альбомы',
+          count: results.albums.length,
+          itemBuilder: (context, index) {
+            final album = results.albums[index];
+            final year = album.release.year;
+            final mark = _HitStyle.of(context).mark;
+            return _CompactHit(
+              title: album.release.title,
+              detail: year == null ? album.artist : '${album.artist} · $year',
+              leading: _CoverMark(path: album.release.coverPath, size: mark),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ReleaseDetailScreen(
+                      release: album.release,
+                      primaryArtist: album.artist,
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        ),
+      if (results.playlists.isNotEmpty)
+        _SearchSection(
+          title: 'Плейлисты',
+          count: results.playlists.length,
+          itemBuilder: (context, index) {
+            final playlist = results.playlists[index];
+            final mark = _HitStyle.of(context).mark;
+            return _CompactHit(
+              title: playlist.name,
+              detail: _countLabel(playlist.trackCount),
+              leading: _PlaylistMark(playlist: playlist, size: mark),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => PlaylistDetailScreen(playlistId: playlist.id),
+                  ),
+                );
+              },
+            );
+          },
+        ),
+    ];
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -446,125 +616,130 @@ class _SearchPanel extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(20),
-        child: CustomScrollView(
-          slivers: [
-            if (results.tracks.isNotEmpty) ...[
-              SliverToBoxAdapter(child: header('Треки')),
-              SliverFixedExtentList(
-                itemExtent: 64,
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final track = results.tracks[index];
-                    return TrackTile(
-                      track: track,
-                      onTap: () => context.read<PlayerService>().playTracks(
-                            results.tracks,
-                            startIndex: index,
-                          ),
-                    );
-                  },
-                  childCount: results.tracks.length,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < sections.length; i++) ...[
+              if (i > 0)
+                const VerticalDivider(
+                  width: 1,
+                  color: Color(0x14F2EDE4),
+                ),
+              Expanded(child: _SearchColumn(section: sections[i])),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SearchColumn extends StatelessWidget {
+  const _SearchColumn({required this.section});
+
+  final _SearchSection section;
+
+  static const _headerHeight = 22.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final slots = ((constraints.maxHeight - _headerHeight) /
+                  _SearchPanel._rowHeight)
+              .floor();
+          final room = slots < 0 ? 0 : slots;
+          final overflow = section.count > room && room > 0;
+          final shown = overflow ? room - 1 : section.count.clamp(0, room);
+          final hidden = section.count - shown;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                height: _headerHeight,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    section.count > shown
+                        ? '${section.title}  ${section.count}'
+                        : section.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.syne(
+                      color: AppTheme.lime,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.4,
+                    ),
+                  ),
                 ),
               ),
-            ],
-            if (results.artists.isNotEmpty) ...[
-              SliverToBoxAdapter(child: header('Артисты')),
-              SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final person = results.artists[index];
-                    return _SearchHit(
-                      title: person.name,
-                      subtitle: _countLabel(person.trackCount),
-                      leading: _PersonMark(
-                        photoPath: library.artistPhotoPath(person.name),
-                        icon: Icons.person_rounded,
+              for (var i = 0; i < shown; i++) section.itemBuilder(context, i),
+              if (overflow)
+                _CompactHit(
+                  title: 'Ещё $hidden',
+                  titleColor: AppTheme.lime,
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => _SearchMoreScreen(section: section),
                       ),
-                      onTap: () => openArtistPage(context, person.name),
                     );
                   },
-                  childCount: results.artists.length,
                 ),
-              ),
             ],
-            if (results.producers.isNotEmpty) ...[
-              SliverToBoxAdapter(child: header('Продюсеры')),
-              SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final person = results.producers[index];
-                    return _SearchHit(
-                      title: person.name,
-                      subtitle: _countLabel(person.trackCount),
-                      leading: _PersonMark(
-                        photoPath: library.artistPhotoPath(person.name),
-                        icon: Icons.headphones_rounded,
-                      ),
-                      onTap: () => openArtistPage(
-                        context,
-                        person.name,
-                        producer: true,
-                      ),
-                    );
-                  },
-                  childCount: results.producers.length,
-                ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _SearchMoreScreen extends StatelessWidget {
+  const _SearchMoreScreen({required this.section});
+
+  final _SearchSection section;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppTheme.ink,
+      body: _HitStyleScope(
+        style: _HitStyle.roomy,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 24, 4),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    mouseCursor: SystemMouseCursors.click,
+                    icon: const Icon(Icons.arrow_back, color: AppTheme.paper),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    section.title,
+                    style: GoogleFonts.syne(
+                      color: AppTheme.paper,
+                      fontSize: 26,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
               ),
-            ],
-            if (results.albums.isNotEmpty) ...[
-              SliverToBoxAdapter(child: header('Альбомы')),
-              SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final album = results.albums[index];
-                    final year = album.release.year;
-                    return _SearchHit(
-                      title: album.release.title,
-                      subtitle: year == null
-                          ? album.artist
-                          : '${album.artist} · $year',
-                      leading: _CoverMark(path: album.release.coverPath),
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => ReleaseDetailScreen(
-                              release: album.release,
-                              primaryArtist: album.artist,
-                            ),
-                          ),
-                        );
-                      },
-                    );
-                  },
-                  childCount: results.albums.length,
-                ),
+            ),
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.fromLTRB(24, 4, 28, 24),
+                itemExtent: _HitStyle.roomy.rowHeight,
+                itemCount: section.count,
+                itemBuilder: section.itemBuilder,
               ),
-            ],
-            if (results.playlists.isNotEmpty) ...[
-              SliverToBoxAdapter(child: header('Плейлисты')),
-              SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final playlist = results.playlists[index];
-                    return _SearchHit(
-                      title: playlist.name,
-                      subtitle: _countLabel(playlist.trackCount),
-                      leading: _PlaylistMark(playlist: playlist),
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) =>
-                                PlaylistDetailScreen(playlistId: playlist.id),
-                          ),
-                        );
-                      },
-                    );
-                  },
-                  childCount: results.playlists.length,
-                ),
-              ),
-            ],
-            const SliverToBoxAdapter(child: SizedBox(height: 12)),
+            ),
           ],
         ),
       ),
@@ -582,59 +757,64 @@ String _countLabel(int count) {
   return '$count треков';
 }
 
-class _SearchHit extends StatelessWidget {
-  const _SearchHit({
-    required this.leading,
+class _CompactHit extends StatelessWidget {
+  const _CompactHit({
     required this.title,
-    required this.subtitle,
     required this.onTap,
+    this.detail,
+    this.leading,
+    this.titleColor = AppTheme.paper,
   });
 
-  final Widget leading;
   final String title;
-  final String subtitle;
+  final String? detail;
+  final Widget? leading;
+  final Color titleColor;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        mouseCursor: SystemMouseCursors.click,
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    final style = _HitStyle.of(context);
+    return SizedBox(
+      height: style.rowHeight,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          mouseCursor: SystemMouseCursors.click,
+          onTap: onTap,
           child: Row(
             children: [
-              leading,
-              const SizedBox(width: 14),
+              if (leading != null) ...[
+                leading!,
+                SizedBox(width: style.gap),
+              ],
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.figtree(
-                        color: AppTheme.paper,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 15,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.figtree(
-                        color: AppTheme.paperMuted,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.figtree(
+                    color: titleColor,
+                    fontWeight: FontWeight.w600,
+                    fontSize: style.title,
+                  ),
                 ),
               ),
+              if (detail != null && detail!.isNotEmpty) ...[
+                SizedBox(width: style.gap),
+                Flexible(
+                  child: Text(
+                    detail!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.end,
+                    style: GoogleFonts.figtree(
+                      color: AppTheme.paperMuted,
+                      fontSize: style.detail,
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -644,53 +824,70 @@ class _SearchHit extends StatelessWidget {
 }
 
 class _PersonMark extends StatelessWidget {
-  const _PersonMark({required this.photoPath, required this.icon});
+  const _PersonMark({
+    required this.photoPath,
+    required this.icon,
+    this.size = 22,
+  });
 
   final String? photoPath;
   final IconData icon;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
     final path = photoPath;
-    Widget child = Icon(icon, color: AppTheme.ink, size: 22);
+    Widget child = Icon(icon, color: AppTheme.ink, size: size * 0.55);
     if (path != null && File(path).existsSync()) {
-      child = Image.file(File(path), width: 40, height: 40, fit: BoxFit.cover);
+      child = Image.file(
+        File(path),
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+      );
     }
     return ClipOval(
       child: ColoredBox(
         color: AppTheme.lime,
-        child: SizedBox(width: 40, height: 40, child: child),
+        child: SizedBox(width: size, height: size, child: child),
       ),
     );
   }
 }
 
 class _CoverMark extends StatelessWidget {
-  const _CoverMark({required this.path});
+  const _CoverMark({required this.path, this.size = 22});
 
   final String? path;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
-    Widget child = const Icon(Icons.album, color: AppTheme.mossBright, size: 22);
+    Widget child = Icon(Icons.album, color: AppTheme.mossBright, size: size * 0.7);
     final cover = path;
     if (cover != null && File(cover).existsSync()) {
-      child = Image.file(File(cover), width: 40, height: 40, fit: BoxFit.cover);
+      child = Image.file(
+        File(cover),
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+      );
     }
     return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(4),
       child: ColoredBox(
         color: AppTheme.inkLift,
-        child: SizedBox(width: 40, height: 40, child: child),
+        child: SizedBox(width: size, height: size, child: child),
       ),
     );
   }
 }
 
 class _PlaylistMark extends StatelessWidget {
-  const _PlaylistMark({required this.playlist});
+  const _PlaylistMark({required this.playlist, this.size = 22});
 
   final Playlist playlist;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
@@ -713,15 +910,20 @@ class _PlaylistMark extends StatelessWidget {
       _ => (AppTheme.inkLift, AppTheme.mossBright, Icons.queue_music),
     };
     final cover = playlist.coverPath;
-    Widget child = Icon(icon, color: foreground, size: 22);
+    Widget child = Icon(icon, color: foreground, size: size * 0.62);
     if (cover != null && cover.isNotEmpty && File(cover).existsSync()) {
-      child = Image.file(File(cover), width: 40, height: 40, fit: BoxFit.cover);
+      child = Image.file(
+        File(cover),
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+      );
     }
     return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(4),
       child: ColoredBox(
         color: background,
-        child: SizedBox(width: 40, height: 40, child: child),
+        child: SizedBox(width: size, height: size, child: child),
       ),
     );
   }
