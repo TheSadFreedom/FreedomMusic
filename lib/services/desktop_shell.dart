@@ -14,6 +14,7 @@ class DesktopShell extends ChangeNotifier with WindowListener {
 
   final PlayerService _player;
   TrayIcon? _tray;
+  MenuItem? _playItem;
   final List<ListenerId> _listeners = [];
   bool _quitting = false;
 
@@ -61,12 +62,17 @@ class DesktopShell extends ChangeNotifier with WindowListener {
       if (menu != null) {
         _addMenuItem(menu, 'Открыть', showWindow);
         menu.addSeparator();
-        _addMenuItem(menu, 'Play / Pause', () => _player.togglePlayPause());
+        _playItem = _addMenuItem(
+          menu,
+          _playLabel(),
+          () => _player.togglePlayPause(),
+        );
         _addMenuItem(menu, 'Следующий', () => _player.next());
         _addMenuItem(menu, 'Предыдущий', () => _player.previous());
         menu.addSeparator();
         _addMenuItem(menu, 'Выход', quit);
         tray.setContextMenu(menu);
+        tray.setContextMenuTrigger(ContextMenuTrigger.rightClicked);
       }
 
       _listeners.add(
@@ -76,7 +82,7 @@ class DesktopShell extends ChangeNotifier with WindowListener {
             case TrayIconDoubleClickedEvent():
               unawaited(showWindow());
             case TrayIconRightClickedEvent():
-              break;
+              _playItem?.label = _playLabel();
           }
         }),
       );
@@ -87,9 +93,15 @@ class DesktopShell extends ChangeNotifier with WindowListener {
     }
   }
 
-  void _addMenuItem(Menu menu, String label, FutureOr<void> Function() action) {
+  String _playLabel() => _player.playing ? 'Пауза' : 'Воспроизвести';
+
+  MenuItem? _addMenuItem(
+    Menu menu,
+    String label,
+    FutureOr<void> Function() action,
+  ) {
     final item = MenuItem.createWithLabelAndType(label, MenuItemType.normal);
-    if (item == null) return;
+    if (item == null) return null;
     _listeners.add(
       item.addListener((event) {
         if (event is MenuItemClickedEvent) {
@@ -98,6 +110,7 @@ class DesktopShell extends ChangeNotifier with WindowListener {
       }),
     );
     menu.addItem(item);
+    return item;
   }
 
   Future<void> showWindow() async {
