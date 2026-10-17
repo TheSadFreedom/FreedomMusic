@@ -789,9 +789,14 @@ class _SectionTitle extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 10),
       child: InkWell(
-        mouseCursor: SystemMouseCursors.click,
+        mouseCursor: onTap == null
+            ? SystemMouseCursors.basic
+            : SystemMouseCursors.click,
         onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
+        hoverColor: Colors.transparent,
+        highlightColor: Colors.transparent,
+        splashColor: Colors.transparent,
+        overlayColor: const WidgetStatePropertyAll(Colors.transparent),
         child: Row(
           children: [
             Text(
@@ -1303,6 +1308,7 @@ class _CarouselArrow extends StatelessWidget {
       shadowColor: Colors.transparent,
       child: InkWell(
         customBorder: const CircleBorder(),
+        mouseCursor: SystemMouseCursors.click,
         onTap: onPressed,
         hoverColor: Colors.white.withValues(alpha: 0.2),
         splashColor: Colors.white.withValues(alpha: 0.35),
