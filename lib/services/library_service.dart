@@ -4,7 +4,6 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/painting.dart';
 import 'package:path/path.dart' as p;
 
 import '../data/app_paths.dart';
@@ -124,6 +123,20 @@ class LibraryService extends ChangeNotifier {
   ScanProgress? get scanProgress => _scanProgress;
   String? get lastScanMessage => _lastScanMessage;
   List<JobLogEntry> get jobLog => List.unmodifiable(_jobLog);
+  /// Progress ticks for settings. Other screens do not listen to this.
+  final jobUi = _JobUi();
+  DateTime _jobPaintAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  void _paintJob({bool force = false}) {
+    final now = DateTime.now();
+    if (!force &&
+        now.difference(_jobPaintAt) < const Duration(milliseconds: 400)) {
+      return;
+    }
+    _jobPaintAt = now;
+    jobUi.ping();
+  }
+
   String? get error => _error;
   bool get isEmpty => _tracks.isEmpty;
 
@@ -317,7 +330,7 @@ class LibraryService extends ChangeNotifier {
     if (!_scanning) return;
     _cancelFill = true;
     _scanner.requestCancel();
-    notifyListeners();
+    _paintJob(force: true);
   }
 
   Future<void> scanLibrary({bool force = false, bool newOnly = false}) async {
@@ -327,7 +340,7 @@ class LibraryService extends ChangeNotifier {
     _scanProgress = null;
     _lastScanMessage = null;
     _jobLog.clear();
-    notifyListeners();
+    _paintJob(force: true);
 
     try {
       final result = await _scanner.scan(
@@ -335,7 +348,7 @@ class LibraryService extends ChangeNotifier {
         newOnly: newOnly,
         onProgress: (p) {
           _scanProgress = p;
-          notifyListeners();
+          _paintJob();
         },
       );
 
@@ -365,7 +378,7 @@ class LibraryService extends ChangeNotifier {
       _scanning = false;
       _cancelFill = false;
       _scanProgress = null;
-      notifyListeners();
+      _paintJob(force: true);
     }
   }
 
@@ -377,7 +390,7 @@ class LibraryService extends ChangeNotifier {
     _scanProgress = null;
     _lastScanMessage = null;
     _jobLog.clear();
-    notifyListeners();
+    _paintJob(force: true);
 
     try {
       final tracks = [
@@ -406,36 +419,33 @@ class LibraryService extends ChangeNotifier {
           if (gaps.producer) producers++;
           if (gaps.genre) genres++;
           if (gaps.lyrics) lyrics++;
-          final lists = <String>[
-            if (gaps.core) Playlist.missingMetadataName,
-            if (gaps.producer) Playlist.missingProducerName,
-            if (gaps.genre) Playlist.missingGenreName,
-            if (gaps.lyrics) Playlist.missingLyricsName,
-          ];
-          _pushJobLog(
-            JobLogEntry(
-              artist: track.displayArtist,
-              title: track.displayTitle,
-              fields: [JobLogField('Списки', lists.join(', '))],
-              ok: true,
-              at: DateTime.now(),
-            ),
-          );
         }
+        if (processed == total || processed % 250 == 0) {
+          _scanProgress = ScanProgress(
+            processed: processed,
+            total: total,
+            added: ready,
+            updated: core,
+            skipped: 0,
+            currentFile: track.displayTitle,
+          );
+          _paintJob();
+          await Future<void>.delayed(Duration.zero);
+        }
+      }
+      if (!cancelled) {
         _scanProgress = ScanProgress(
-          processed: processed,
+          processed: total,
           total: total,
           added: ready,
           updated: core,
           skipped: 0,
-          currentFile: track.displayTitle,
+          currentFile: 'Сохраняем списки…',
         );
-        if (processed == total || processed % 20 == 0) {
-          notifyListeners();
-        }
+        _paintJob(force: true);
+        await _syncMetaPlaylists();
+        _playlists = await _db.getPlaylists();
       }
-      await _syncMetaPlaylists();
-      _playlists = await _db.getPlaylists();
       final summary =
           '${Playlist.missingMetadataName}: $core. '
           '${Playlist.missingProducerName}: $producers. '
@@ -446,6 +456,7 @@ class LibraryService extends ChangeNotifier {
         _lastScanMessage = 'Поиск остановлен. $summary';
       } else {
         _lastScanMessage = summary;
+        notifyListeners();
       }
     } catch (e) {
       _error = e.toString();
@@ -454,7 +465,7 @@ class LibraryService extends ChangeNotifier {
       _scanning = false;
       _cancelFill = false;
       _scanProgress = null;
-      notifyListeners();
+      _paintJob(force: true);
     }
   }
 
@@ -467,14 +478,14 @@ class LibraryService extends ChangeNotifier {
     _scanProgress = null;
     _lastScanMessage = null;
     _jobLog.clear();
-    notifyListeners();
+    _paintJob(force: true);
 
     try {
       final result = await _runMetadataPipeline();
       await reload();
       if (result.emptyCount == 0 && !result.cancelled) {
         _lastScanMessage =
-            'Все файлы уже в «${Playlist.metadataReadyName}».';
+            'Искать нечего: готовые файлы пропущены, у остальных эти поля уже заполнены.';
       } else if (result.cancelled) {
         _lastScanMessage =
             'Поиск метаданных остановлен. Проверено: ${result.scanned}. '
@@ -492,7 +503,7 @@ class LibraryService extends ChangeNotifier {
       _scanning = false;
       _cancelFill = false;
       _scanProgress = null;
-      notifyListeners();
+      _paintJob(force: true);
     }
   }
 
@@ -504,14 +515,14 @@ class LibraryService extends ChangeNotifier {
     _scanProgress = null;
     _lastScanMessage = null;
     _jobLog.clear();
-    notifyListeners();
+    _paintJob(force: true);
 
     try {
       final result = await _runMetadataPipeline(producersOnly: true);
       await reload();
       if (result.emptyCount == 0 && !result.cancelled) {
         _lastScanMessage =
-            'Все файлы уже в «${Playlist.metadataReadyName}».';
+            'Искать нечего: готовые файлы пропущены, у остальных продюсер уже указан.';
       } else if (result.cancelled) {
         _lastScanMessage =
             'Поиск продюсеров остановлен. Проверено: ${result.scanned}. '
@@ -529,7 +540,7 @@ class LibraryService extends ChangeNotifier {
       _scanning = false;
       _cancelFill = false;
       _scanProgress = null;
-      notifyListeners();
+      _paintJob(force: true);
     }
   }
 
@@ -543,7 +554,7 @@ class LibraryService extends ChangeNotifier {
     _scanProgress = null;
     _lastScanMessage = null;
     _jobLog.clear();
-    notifyListeners();
+    _paintJob(force: true);
 
     try {
       final tracks = await _db.getAllTracks(includeTrashed: true);
@@ -570,7 +581,10 @@ class LibraryService extends ChangeNotifier {
           currentFile: '${track.displayArtist} — ${track.displayTitle}',
         );
         if (newTitle == null && newAlbum == null) {
-          if (checked == total || checked % 20 == 0) notifyListeners();
+          if (checked == total || checked % 200 == 0) {
+            _paintJob();
+            await Future<void>.delayed(Duration.zero);
+          }
           continue;
         }
         final draft = MetadataDraft.fromTrack(track);
@@ -610,7 +624,8 @@ class LibraryService extends ChangeNotifier {
             ),
           );
         }
-        notifyListeners();
+        _paintJob(force: true);
+        await Future<void>.delayed(Duration.zero);
       }
       await reload();
       if (_cancelFill) {
@@ -627,7 +642,7 @@ class LibraryService extends ChangeNotifier {
       _scanning = false;
       _cancelFill = false;
       _scanProgress = null;
-      notifyListeners();
+      _paintJob(force: true);
     }
   }
 
@@ -639,7 +654,7 @@ class LibraryService extends ChangeNotifier {
     _scanProgress = null;
     _lastScanMessage = null;
     _jobLog.clear();
-    notifyListeners();
+    _paintJob(force: true);
 
     try {
       final candidates =
@@ -667,7 +682,7 @@ class LibraryService extends ChangeNotifier {
       _scanning = false;
       _cancelFill = false;
       _scanProgress = null;
-      notifyListeners();
+      _paintJob(force: true);
     }
   }
 
@@ -682,10 +697,28 @@ class LibraryService extends ChangeNotifier {
         int filled,
         bool cancelled,
       })> _runMetadataPipeline({bool producersOnly = false}) async {
-    final tracks = [
-      for (final track in _tracks)
-        if (!track.isTrashed && !trackMetaGaps(track).ready) track,
-    ];
+    final tracks = <Track>[];
+    var walked = 0;
+    for (final track in _tracks) {
+      if (_cancelFill) break;
+      if (track.isTrashed || trackMetaGaps(track).ready) continue;
+      walked++;
+      if (_metadataSearchNeeded(track, producersOnly: producersOnly)) {
+        tracks.add(track);
+      }
+      if (walked % 250 == 0) {
+        _scanProgress = ScanProgress(
+          processed: walked,
+          total: _tracks.length,
+          added: 0,
+          updated: tracks.length,
+          skipped: walked - tracks.length,
+          currentFile: 'Отбираем файлы…',
+        );
+        _paintJob();
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
     final emptyLabel = Playlist.metadataReadyName;
     final total = tracks.length;
     final toSearch = _Pipe<Track>();
@@ -713,10 +746,10 @@ class LibraryService extends ChangeNotifier {
         skipped: total,
         currentFile: total == 0
             ? 'Все файлы в «$emptyLabel»'
-            : 'Кроме готовых: $total · проверено $searched · '
+            : 'К поиску: $total · проверено $searched · '
                 'найдено $found · записано $written$tail',
       );
-      notifyListeners();
+      _paintJob(force: force);
     }
 
     Future<void> searcher() async {
@@ -746,7 +779,7 @@ class LibraryService extends ChangeNotifier {
         final item = await toWrite.take();
         if (item == null) return;
         detail = 'Записываем: ${item.entry.summary}';
-        publish(force: true);
+        publish();
         try {
           await saveTrackMetadata(item.track, item.draft, refreshLibrary: false);
           _pushJobLog(item.entry);
@@ -764,7 +797,7 @@ class LibraryService extends ChangeNotifier {
           );
           debugPrint('auto-fill failed for ${item.track.trackKey}: $e');
         }
-        publish(force: true);
+        publish();
       }
     }
 
@@ -775,10 +808,10 @@ class LibraryService extends ChangeNotifier {
       for (final track in tracks) {
         if (_cancelFill) break;
         scanned++;
-        detail = 'В очереди: ${track.displayArtist} — ${track.displayTitle}';
         toSearch.add(track);
-        publish();
-        await Future<void>.delayed(Duration.zero);
+        if (scanned % 200 == 0) {
+          await Future<void>.delayed(Duration.zero);
+        }
       }
     } finally {
       toSearch.close();
@@ -813,6 +846,27 @@ class LibraryService extends ChangeNotifier {
       draft: draft,
       entry: _metaLogEntry(track, producer: producer),
     );
+  }
+
+  bool _metadataSearchNeeded(Track track, {required bool producersOnly}) {
+    if (!_canSearchMetadata(track)) return false;
+    if (producersOnly) return isBlankMeta(track.producer);
+    final album = track.album.trim().toLowerCase();
+    final albumMissing = album.isEmpty ||
+        album == 'unknown' ||
+        album == 'мне нравится' ||
+        album == 'мне нужен ui';
+    return albumMissing ||
+        MetaLookupService.albumArtistMissing(track.albumArtist) ||
+        track.year == null ||
+        track.year! < 1000 ||
+        track.trackNumber == null ||
+        track.trackNumber! < 1 ||
+        track.trackTotal == null ||
+        track.trackTotal! < 1 ||
+        track.discNumber == null ||
+        track.discNumber! < 1 ||
+        isBlankMeta(track.producer);
   }
 
   bool _canSearchMetadata(Track track) {
@@ -948,7 +1002,7 @@ class LibraryService extends ChangeNotifier {
         skipped: 0,
         currentFile: 'Ищем текст: ${track.displayArtist} — ${track.displayTitle}',
       );
-      notifyListeners();
+      _paintJob();
     }
 
     for (var i = 0; i < candidates.length; i++) {
@@ -990,7 +1044,7 @@ class LibraryService extends ChangeNotifier {
         );
         _pushJobLog(entry);
         filled++;
-        notifyListeners();
+        _paintJob();
       } catch (e, st) {
         debugPrint('lyrics tag write ${track.trackKey}: $e\n$st');
         try {
@@ -1002,7 +1056,7 @@ class LibraryService extends ChangeNotifier {
           _invalidateSearch();
           _pushJobLog(entry);
           filled++;
-          notifyListeners();
+          _paintJob();
         } catch (e2) {
           _pushJobLog(
             JobLogEntry(
@@ -1015,12 +1069,8 @@ class LibraryService extends ChangeNotifier {
             ),
           );
           debugPrint('lyrics db write ${track.trackKey}: $e2');
-          notifyListeners();
+          _paintJob();
         }
-      }
-      if (filled > 0 && filled % 25 == 0) {
-        imageCache.clear();
-        imageCache.clearLiveImages();
       }
     }
     return (filled: filled, cancelled: false);
@@ -1028,8 +1078,8 @@ class LibraryService extends ChangeNotifier {
 
   void _pushJobLog(JobLogEntry entry) {
     _jobLog.add(entry);
-    if (_jobLog.length > 500) {
-      _jobLog.removeRange(0, _jobLog.length - 500);
+    if (_jobLog.length > 80) {
+      _jobLog.removeRange(0, _jobLog.length - 80);
     }
   }
 
@@ -1684,7 +1734,7 @@ class LibraryService extends ChangeNotifier {
     if (_artistPhotosRefreshing || _tracks.isEmpty) return 0;
     _artistPhotosRefreshing = true;
     _artistPhotoProgress = const ArtistPhotoProgress(done: 0, total: 0);
-    notifyListeners();
+    _paintJob(force: true);
     var updated = 0;
     var done = 0;
     try {
@@ -1701,7 +1751,7 @@ class LibraryService extends ChangeNotifier {
 
       final total = queue.length;
       _artistPhotoProgress = ArtistPhotoProgress(done: 0, total: total);
-      notifyListeners();
+      _paintJob(force: true);
 
       const batch = 3;
       for (var i = 0; i < queue.length; i += batch) {
@@ -1728,7 +1778,7 @@ class LibraryService extends ChangeNotifier {
               updated: updated,
               current: name,
             );
-            notifyListeners();
+            _paintJob();
           }
         }));
       }
@@ -1737,6 +1787,7 @@ class LibraryService extends ChangeNotifier {
       _artistPhotosRefreshing = false;
       _artistPhotoProgress = null;
       notifyListeners();
+      _paintJob(force: true);
     }
   }
 
@@ -1787,17 +1838,22 @@ class LibraryService extends ChangeNotifier {
       Playlist.kindMissingLyrics: [],
       Playlist.kindMetadataReady: [],
     };
+    var seen = 0;
     for (final track in _tracks) {
       if (track.isTrashed) continue;
       final gaps = trackMetaGaps(track);
       if (gaps.ready) {
         groups[Playlist.kindMetadataReady]!.add(track);
-        continue;
+      } else {
+        if (gaps.core) groups[Playlist.kindIncomplete]!.add(track);
+        if (gaps.producer) groups[Playlist.kindNoProducer]!.add(track);
+        if (gaps.genre) groups[Playlist.kindMissingGenre]!.add(track);
+        if (gaps.lyrics) groups[Playlist.kindMissingLyrics]!.add(track);
       }
-      if (gaps.core) groups[Playlist.kindIncomplete]!.add(track);
-      if (gaps.producer) groups[Playlist.kindNoProducer]!.add(track);
-      if (gaps.genre) groups[Playlist.kindMissingGenre]!.add(track);
-      if (gaps.lyrics) groups[Playlist.kindMissingLyrics]!.add(track);
+      seen++;
+      if (seen % 400 == 0) {
+        await Future<void>.delayed(Duration.zero);
+      }
     }
     const specs = <(String, String, String)>[
       (
@@ -1835,7 +1891,14 @@ class LibraryService extends ChangeNotifier {
         description: spec.$3,
         trackKeys: [for (final track in tracks) track.trackKey],
       );
+      await Future<void>.delayed(Duration.zero);
     }
+  }
+
+  @override
+  void dispose() {
+    jobUi.dispose();
+    super.dispose();
   }
 
   Future<List<Track>> playlistTracks(int id) async {
@@ -1955,4 +2018,8 @@ class _Pipe<T> {
     _waiters.add(waiter);
     return waiter.future;
   }
+}
+
+class _JobUi extends ChangeNotifier {
+  void ping() => notifyListeners();
 }

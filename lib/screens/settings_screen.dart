@@ -10,6 +10,7 @@ import '../services/player_service.dart';
 import '../services/settings_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/ambient_backdrop.dart';
+import '../widgets/kept_icons.dart';
 import '../widgets/screen_title.dart';
 
 const _kYellow = Color(0xFFFFDB4D);
@@ -215,7 +216,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     // Rebuild only on library / the few settings shown here — not on every
     // playback-session persist from the player.
-    final library = context.watch<LibraryService>();
+    final library = context.read<LibraryService>();
     final settings = context.read<SettingsService>();
     final scanOnStartup = context.select<SettingsService, bool>(
       (s) => s.scanOnStartup,
@@ -226,13 +227,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final crossfade = context.select<SettingsService, int>(
       (s) => s.crossfadeSeconds,
     );
-    final progress = library.scanProgress;
-    final scanning = library.scanning;
-    final photosBusy = library.artistPhotosRefreshing;
-    final photoProgress = library.artistPhotoProgress;
-    final busy = scanning || _busyBackup || photosBusy;
 
-    return Stack(
+    return ListenableBuilder(
+      listenable: Listenable.merge([library, library.jobUi]),
+      builder: (context, _) {
+        final progress = library.scanProgress;
+        final scanning = library.scanning;
+        final photosBusy = library.artistPhotosRefreshing;
+        final photoProgress = library.artistPhotoProgress;
+        final busy = scanning || _busyBackup || photosBusy;
+        return Stack(
       children: [
         const Positioned.fill(
           child: AmbientBackdrop(
@@ -321,10 +325,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         child: _Group(
                           children: [
                             _SettingAction(
-                              icon: const Icon(
-                                Icons.folder_open_rounded,
-                                size: 18,
-                              ),
+                              icon: const FolderOpenGlyph(),
                               title: 'Сканировать папку music',
                               description: 'Сканирует папку полностью.',
                               onPressed: busy
@@ -332,10 +333,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   : () => library.scanLibrary(force: true),
                             ),
                             _SettingAction(
-                              icon: const Icon(
-                                Icons.fiber_new_rounded,
-                                size: 18,
-                              ),
+                              icon: const FiberNewGlyph(),
                               title: 'Поиск новых',
                               description:
                                   'Сканирует только новые файлы и не трогает то, что уже было добавлено.',
@@ -352,10 +350,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         child: _Group(
                           children: [
                             _SettingAction(
-                              icon: const Icon(
-                                Icons.manage_search_rounded,
-                                size: 18,
-                              ),
+                              icon: const ManageSearchGlyph(),
                               title: 'Поиск пустых метаданных',
                               description:
                                   'Раскладывает треки по спискам: нехватает метаданных, Prod., жанра, текста — или метаданные готовы.',
@@ -364,10 +359,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   : () => library.reportEmptyMetadata(),
                             ),
                             _SettingAction(
-                              icon: const Icon(
-                                Icons.travel_explore_rounded,
-                                size: 18,
-                              ),
+                              icon: const TravelExploreGlyph(),
                               title: 'Заполнить пустые метаданные',
                               description:
                                   'Проходит все файлы, кроме списка «Метаданные готовы», и заполняет пустые поля.',
@@ -376,10 +368,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   : () => library.fillEmptyMetadata(),
                             ),
                             _SettingAction(
-                              icon: const Icon(
-                                Icons.headphones_rounded,
-                                size: 18,
-                              ),
+                              icon: const HeadphonesGlyph(),
                               title: 'Поиск метаданных продюсеров',
                               description:
                                   'Проходит все файлы, кроме «Метаданные готовы», и записывает только продюсера.',
@@ -388,10 +377,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   : () => library.fillMissingProducers(),
                             ),
                             _SettingAction(
-                              icon: const Icon(
-                                Icons.lyrics_outlined,
-                                size: 18,
-                              ),
+                              icon: const LyricsGlyph(),
                               title: 'Поиск текстов',
                               description:
                                   'Ищет текст песни и записывает его в файл.',
@@ -408,10 +394,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         child: _Group(
                           children: [
                             _SettingAction(
-                              icon: const Icon(
-                                Icons.edit_outlined,
-                                size: 18,
-                              ),
+                              icon: const EditGlyph(),
                               title: 'Фикс названий',
                               description:
                                   'Убирает в конце названия feat. и prod by, в том числе в скобках.',
@@ -431,10 +414,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     },
                             ),
                             _SettingAction(
-                              icon: const Icon(
-                                Icons.face_retouching_natural_rounded,
-                                size: 18,
-                              ),
+                              icon: const FacePhotoGlyph(),
                               title: 'Поиск фотографий артистов',
                               description:
                                   'Ищет фото артистов. Ручные фото не перезаписываются.',
@@ -504,10 +484,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             _Group(
                               children: [
                                 _SettingAction(
-                                  icon: const Icon(
-                                    Icons.upload_rounded,
-                                    size: 18,
-                                  ),
+                                  icon: const UploadGlyph(),
                                   title: 'Экспорт',
                                   description:
                                       'Архив плейлистов, фото и истории.',
@@ -516,10 +493,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       : () => _export(library),
                                 ),
                                 _SettingAction(
-                                  icon: const Icon(
-                                    Icons.download_rounded,
-                                    size: 18,
-                                  ),
+                                  icon: const DownloadGlyph(),
                                   title: 'Импорт',
                                   description:
                                       'Заменит данные приложения из архива.',
@@ -528,10 +502,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       : () => _import(library),
                                 ),
                                 _SettingAction(
-                                  icon: const Icon(
-                                    Icons.restart_alt_rounded,
-                                    size: 18,
-                                  ),
+                                  icon: const RestartGlyph(),
                                   title: 'Сбросить',
                                   description:
                                       'Обнулить прослушивания. Плейлисты останутся.',
@@ -589,6 +560,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
         ),
       ],
+    );
+      },
     );
   }
 }

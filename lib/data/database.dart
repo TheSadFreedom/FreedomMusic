@@ -1242,18 +1242,24 @@ class AppDatabase {
         where: 'playlist_id = ?',
         whereArgs: [id],
       );
-      const chunk = 400;
+      const chunk = 200;
       for (var i = 0; i < trackKeys.length; i += chunk) {
         final end = (i + chunk).clamp(0, trackKeys.length);
-        final batch = txn.batch();
+        final values = StringBuffer();
+        final args = <Object>[];
         for (var j = i; j < end; j++) {
-          batch.insert('playlist_tracks', {
-            'playlist_id': id,
-            'track_key': trackKeys[j],
-            'position': j,
-          });
+          if (j > i) values.write(',');
+          values.write('(?,?,?)');
+          args
+            ..add(id)
+            ..add(trackKeys[j])
+            ..add(j);
         }
-        await batch.commit(noResult: true);
+        await txn.rawInsert(
+          'INSERT INTO playlist_tracks (playlist_id, track_key, position) '
+          'VALUES $values',
+          args,
+        );
       }
       await txn.update(
         'playlists',

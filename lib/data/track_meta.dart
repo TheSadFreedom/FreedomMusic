@@ -1,5 +1,4 @@
 import '../models/track.dart';
-import '../utils/lyrics_format.dart';
 import 'track_key.dart';
 
 /// Which system lists a track belongs to after a metadata check.
@@ -38,8 +37,24 @@ TrackMetaGaps trackMetaGaps(Track track) {
     core: core,
     producer: producerNames(track.producer).isEmpty,
     genre: isBlankMeta(track.genre),
-    lyrics: !hasLyrics(track.lyrics),
+    lyrics: _lyricsMissing(track.lyrics),
   );
+}
+
+/// True when the lyrics tag has no visible text. Skips a full LRC rewrite.
+bool _lyricsMissing(String? raw) {
+  if (raw == null || raw.isEmpty) return true;
+  for (var i = 0; i < raw.length; i++) {
+    final unit = raw.codeUnitAt(i);
+    if (unit == 0x5B) {
+      final end = raw.indexOf(']', i + 1);
+      if (end < 0) return true;
+      i = end;
+      continue;
+    }
+    if (unit > 32) return false;
+  }
+  return true;
 }
 
 bool _coverMissing(String? path) => path == null || path.trim().isEmpty;
