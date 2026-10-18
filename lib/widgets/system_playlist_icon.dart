@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../models/playlist.dart';
+import 'kept_icons.dart';
 
-/// Icon for a system playlist. Each glyph is a const [Icon] so the release
-/// font keeps it.
+/// Icon for a system playlist. Color and size come from [IconTheme].
 class SystemPlaylistIcon extends StatelessWidget {
   const SystemPlaylistIcon({
     super.key,
@@ -27,21 +27,21 @@ class SystemPlaylistIcon extends StatelessWidget {
   static Widget _glyph(String? kind) {
     switch (kind) {
       case Playlist.kindNew:
-        return const Icon(Icons.fiber_new_rounded);
+        return const FiberNewGlyph();
       case Playlist.kindIncomplete:
-        return const Icon(Icons.article_outlined);
+        return const ArticleGlyph();
       case Playlist.kindNoProducer:
-        return const Icon(Icons.headphones_rounded);
+        return const HeadphonesGlyph();
       case Playlist.kindMissingGenre:
-        return const Icon(Icons.sell_outlined);
+        return const SellGlyph();
       case Playlist.kindMissingLyrics:
-        return const Icon(Icons.lyrics_outlined);
+        return const LyricsGlyph();
       case Playlist.kindMetadataReady:
-        return const Icon(Icons.task_alt_rounded);
+        return const TaskAltGlyph();
       case Playlist.kindTrash:
-        return const Icon(Icons.delete_outline_rounded);
+        return const DeleteOutlineRoundedGlyph();
       default:
-        return const Icon(Icons.queue_music);
+        return const QueueMusicGlyph();
     }
   }
 }
