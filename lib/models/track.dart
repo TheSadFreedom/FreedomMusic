@@ -64,16 +64,18 @@ class Track {
   /// Individual artists (comma / feat.).
   List<String> get artists => splitArtists(artist);
 
-  String get displayArtist => formatArtists(artist);
+  String get displayArtist {
+    final names = splitArtists(artist).where((name) => !isBlankMeta(name));
+    if (names.isEmpty) return '';
+    return names.join(', ');
+  }
 
-  String get displayTitle =>
-      title.trim().isEmpty ? 'Unknown' : title;
+  String get displayTitle => metaFieldText(title);
 
-  String get displayGenre =>
-      genre.trim().isEmpty ? 'Unknown' : genre;
+  String get displayGenre => metaFieldText(genre);
 
-  String get displayAlbum =>
-      album.trim().isEmpty ? 'Unknown' : album;
+  /// Grouping key. An empty album stays "Unknown" so releases still cluster.
+  String get displayAlbum => isBlankMeta(album) ? 'Unknown' : album.trim();
 
   /// All text used by home search (title, artists, album, lyrics, …).
   /// Cached: lyrics are long, and search must not rebuild this per keystroke.

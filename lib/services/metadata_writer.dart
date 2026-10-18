@@ -75,12 +75,14 @@ class MetadataWriter {
       throw StateError('У трека нет файлов на диске');
     }
 
-    final title = draft.title.trim().isEmpty ? 'Unknown' : draft.title.trim();
-    final artist = formatArtists(draft.artist);
-    final album = draft.album.trim().isEmpty ? 'Unknown' : draft.album.trim();
-    final genre = draft.genre.trim().isEmpty ? 'Unknown' : draft.genre.trim();
-    final albumArtist = draft.albumArtist?.trim();
-    final producer = draft.producer?.trim();
+    final title = isBlankMeta(draft.title) ? 'Unknown' : draft.title.trim();
+    final artist = storedArtists(draft.artist);
+    final album = isBlankMeta(draft.album) ? 'Unknown' : draft.album.trim();
+    final genre = isBlankMeta(draft.genre) ? 'Unknown' : draft.genre.trim();
+    final albumArtist = storedPeople(draft.albumArtist);
+    final producerNamesOnly = producerNames(draft.producer);
+    final producer =
+        producerNamesOnly.isEmpty ? null : producerNamesOnly.join(', ');
     final lyrics = draft.lyrics?.trim();
     final year = draft.year;
     final trackNumber = draft.trackNumber;
@@ -309,7 +311,7 @@ String? _producerFromMp3(Mp3Metadata meta) {
     final key = entry.key.trim().toLowerCase();
     if (key == 'producer') {
       final value = entry.value.replaceAll('\u0000', '').trim();
-      if (value.isNotEmpty) return value;
+      if (!isBlankMeta(value)) return value;
     }
     if (key == 'tipl' || key == 'ipls') {
       final fromList = _producerFromInvolved(entry.value);
@@ -324,7 +326,7 @@ String? _producerFromInvolved(String raw) {
   for (var i = 0; i + 1 < parts.length; i++) {
     if (parts[i].trim().toLowerCase() != 'producer') continue;
     final name = parts[i + 1].trim();
-    if (name.isNotEmpty) return name;
+    if (!isBlankMeta(name)) return name;
   }
   return null;
 }
@@ -332,7 +334,7 @@ String? _producerFromInvolved(String raw) {
 String? _firstNonEmpty(List<String> values) {
   for (final value in values) {
     final trimmed = value.replaceAll('\u0000', '').trim();
-    if (trimmed.isNotEmpty) return trimmed;
+    if (!isBlankMeta(trimmed)) return trimmed;
   }
   return null;
 }

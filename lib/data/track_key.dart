@@ -6,6 +6,15 @@ String normalizeTag(String? value) {
   return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
 }
 
+/// Missing tag. The word Unknown is the same as an empty field.
+bool isBlankMeta(String? value) {
+  final text = value?.trim().toLowerCase() ?? '';
+  return text.isEmpty || text == 'unknown';
+}
+
+/// Text for a metadata field. Unknown is blank.
+String metaFieldText(String? value) => isBlankMeta(value) ? '' : value!.trim();
+
 /// Split "A, B feat. C" into individual artist names.
 /// Separators: comma and feat./ft./featuring (case-insensitive).
 List<String> splitArtists(String? raw) {
@@ -23,6 +32,17 @@ List<String> splitArtists(String? raw) {
 
 /// Canonical artist string for storage / display: "A, B".
 String formatArtists(String? raw) => splitArtists(raw).join(', ');
+
+/// Names that are actually filled in. Unknown is dropped.
+String? storedPeople(String? raw) {
+  if (raw == null || raw.trim().isEmpty) return null;
+  final names = splitArtists(raw).where((name) => !isBlankMeta(name)).toList();
+  if (names.isEmpty) return null;
+  return names.join(', ');
+}
+
+/// Artist tag for storage. No real names means Unknown.
+String storedArtists(String? raw) => storedPeople(raw) ?? 'Unknown';
 
 /// Names in the producer tag. Empty tag is nobody, not "Unknown".
 List<String> producerNames(String? raw) {

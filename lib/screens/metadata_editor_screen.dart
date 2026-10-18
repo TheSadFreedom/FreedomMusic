@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
+import '../data/track_key.dart';
 import '../models/track.dart';
 import '../services/library_service.dart';
 import '../services/metadata_writer.dart';
@@ -60,17 +61,17 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
   void initState() {
     super.initState();
     final t = widget.track;
-    _title = TextEditingController(text: t.title);
-    _artist = TextEditingController(text: t.artist);
-    _album = TextEditingController(text: t.album);
-    _albumArtist = TextEditingController(text: t.albumArtist ?? '');
-    final storedProducer = t.producer?.trim();
+    _title = TextEditingController(text: metaFieldText(t.title));
+    _artist = TextEditingController(text: metaFieldText(storedArtists(t.artist)));
+    _album = TextEditingController(text: metaFieldText(t.album));
+    _albumArtist = TextEditingController(text: metaFieldText(storedPeople(t.albumArtist)));
+    final storedProducer = metaFieldText(t.producer);
     final path = t.primaryPath;
-    final fileProducer = (storedProducer != null && storedProducer.isNotEmpty)
+    final fileProducer = storedProducer.isNotEmpty
         ? storedProducer
-        : (path == null ? '' : (readFileProducer(path) ?? ''));
+        : (path == null ? '' : metaFieldText(readFileProducer(path)));
     _producer = TextEditingController(text: fileProducer);
-    _genre = TextEditingController(text: t.genre);
+    _genre = TextEditingController(text: metaFieldText(t.genre));
     final y = t.year;
     _year = TextEditingController(
       text: (y == null || y == 0) ? '' : y.toString(),
@@ -283,7 +284,7 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
                           'Артист (запятая или feat.)',
                           requiredField: true,
                         ),
-                        _field(_album, 'Альбом', requiredField: true),
+                        _field(_album, 'Альбом'),
                         _field(_albumArtist, 'Артист альбома'),
                         _field(_producer, 'Продюсер'),
                         LayoutBuilder(

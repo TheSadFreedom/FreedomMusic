@@ -569,8 +569,7 @@ class LibraryService extends ChangeNotifier {
     final needTrackNo = track.trackNumber == null || track.trackNumber! < 1;
     final needTrackTotal = track.trackTotal == null || track.trackTotal! < 1;
     final needDisc = track.discNumber == null || track.discNumber! < 1;
-    final needProducer =
-        track.producer == null || track.producer!.trim().isEmpty;
+    final needProducer = isBlankMeta(track.producer);
 
     final newAlbum = (needAlbum && hit.album != null && hit.album!.isNotEmpty)
         ? MetaLookupService.cleanAlbum(hit.album!)
@@ -782,7 +781,9 @@ class LibraryService extends ChangeNotifier {
   Map<String, List<Track>> tracksByGenre() {
     final map = <String, List<Track>>{};
     for (final t in _tracks) {
-      map.putIfAbsent(t.displayGenre, () => []).add(t);
+      final genre = t.displayGenre;
+      if (genre.isEmpty) continue;
+      map.putIfAbsent(genre, () => []).add(t);
     }
     final keys = map.keys.toList()
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
@@ -1066,7 +1067,7 @@ class LibraryService extends ChangeNotifier {
   String _metaHay(Track track) {
     final buf = StringBuffer();
     void add(String? value) {
-      if (value == null || value.isEmpty) return;
+      if (isBlankMeta(value)) return;
       buf
         ..write(value)
         ..write(' ');

@@ -179,11 +179,8 @@ class ScannerService {
       if (path == null || !File(path).existsSync()) continue;
       try {
         final meta = readMetadata(File(path), getImage: false);
-        final artist = formatArtists(_firstOrUnknown(meta.artist));
-        final rawAlbum = meta.albumArtist?.trim();
-        final albumArtist = (rawAlbum == null || rawAlbum.isEmpty)
-            ? null
-            : formatArtists(rawAlbum);
+        final artist = storedArtists(meta.artist);
+        final albumArtist = storedPeople(meta.albumArtist);
         if (artist == track.artist && albumArtist == track.albumArtist) {
           continue;
         }
@@ -209,17 +206,14 @@ class ScannerService {
       final meta = readMetadata(file, getImage: true);
       final title = _pickTitle(meta, file.path);
       // Keep the tag as written. Artist merges only group the artist card.
-      final artist = formatArtists(_firstOrUnknown(meta.artist));
-      final album = meta.album?.trim().isNotEmpty == true
-          ? meta.album!.trim()
-          : 'Unknown';
-      final genre = meta.genres.isNotEmpty
-          ? meta.genres.map((g) => g.trim()).where((g) => g.isNotEmpty).join(', ')
-          : 'Unknown';
-      final rawAlbumArtist = meta.albumArtist?.trim();
-      final albumArtist = (rawAlbumArtist == null || rawAlbumArtist.isEmpty)
-          ? null
-          : formatArtists(rawAlbumArtist);
+      final artist = storedArtists(meta.artist);
+      final rawAlbum = meta.album?.trim();
+      final album = isBlankMeta(rawAlbum) ? 'Unknown' : rawAlbum!;
+      final genreRaw = meta.genres.isNotEmpty
+          ? meta.genres.map((g) => g.trim()).where((g) => !isBlankMeta(g)).join(', ')
+          : '';
+      final genre = genreRaw.isEmpty ? 'Unknown' : genreRaw;
+      final albumArtist = storedPeople(meta.albumArtist);
       final producer = readFileProducer(file.path);
       final lyrics = meta.lyrics?.trim();
       final durationMs = meta.duration?.inMilliseconds;
@@ -293,14 +287,8 @@ class ScannerService {
 
   String _pickTitle(AudioMetadata meta, String filePath) {
     final t = meta.title?.trim();
-    if (t != null && t.isNotEmpty) return t;
+    if (!isBlankMeta(t)) return t!;
     return p.basenameWithoutExtension(filePath);
-  }
-
-  String _firstOrUnknown(String? value) {
-    final v = value?.trim();
-    if (v == null || v.isEmpty) return 'Unknown';
-    return v;
   }
 
   bool _isAudio(String path) {
