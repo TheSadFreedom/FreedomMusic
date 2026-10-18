@@ -368,7 +368,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       : () => library.fillMissingLyrics(),
                                 ),
                                 _ActionTile(
-                                  icon: Icons.drive_file_rename_outline,
+                                  icon: Icons.edit_outlined,
+                                  glyph: const _TitlesGlyph(),
                                   title: 'Названия',
                                   subtitle:
                                       'Убирает в конце feat. и prod by, в том числе в скобках.',
@@ -824,17 +825,32 @@ class _ActionRow extends StatelessWidget {
   }
 }
 
+class _TitlesGlyph extends StatelessWidget {
+  const _TitlesGlyph();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Icon(
+      Icons.edit_outlined,
+      size: 18,
+      color: AppTheme.lime,
+    );
+  }
+}
+
 class _ActionTile extends StatelessWidget {
   const _ActionTile({
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.onPressed,
+    this.glyph,
     this.busy = false,
     this.danger = false,
   });
 
   final IconData icon;
+  final Widget? glyph;
   final String title;
   final String subtitle;
   final VoidCallback? onPressed;
@@ -880,11 +896,10 @@ class _ActionTile extends StatelessWidget {
                               color: accent.withValues(alpha: 0.9),
                             ),
                           )
-                        : icon == Icons.drive_file_rename_outline && enabled
-                            ? const Icon(
-                                Icons.drive_file_rename_outline,
-                                size: 18,
-                                color: AppTheme.lime,
+                        : glyph != null
+                            ? Opacity(
+                                opacity: enabled ? 1 : 0.4,
+                                child: glyph,
                               )
                             : Icon(
                                 icon,
