@@ -623,7 +623,6 @@ class LibraryService extends ChangeNotifier {
       artist: track.artist,
       title: track.title,
     );
-    if (hit == null) return null;
 
     final needAlbum = track.album.trim().isEmpty ||
         const {'unknown', 'мне нравится', 'мне нужен ui'}
@@ -636,28 +635,43 @@ class LibraryService extends ChangeNotifier {
     final needDisc = track.discNumber == null || track.discNumber! < 1;
     final needProducer = isBlankMeta(track.producer);
 
-    final newAlbum = (needAlbum && hit.album != null && hit.album!.isNotEmpty)
+    final newAlbum = (hit != null &&
+            needAlbum &&
+            hit.album != null &&
+            hit.album!.isNotEmpty)
         ? MetaLookupService.cleanAlbum(hit.album!)
         : track.album;
-    final newAlbumArtist = (needAlbumArtist &&
+    var newAlbumArtist = (hit != null &&
+            needAlbumArtist &&
             hit.albumArtist != null &&
             hit.albumArtist!.trim().isNotEmpty)
         ? formatArtists(hit.albumArtist)
         : track.albumArtist;
-    final newYear = (needYear && hit.year != null) ? hit.year : track.year;
-    final newTrackNo = (needTrackNo && hit.trackNumber != null)
+    final newYear =
+        (hit != null && needYear && hit.year != null) ? hit.year : track.year;
+    final newTrackNo = (hit != null && needTrackNo && hit.trackNumber != null)
         ? hit.trackNumber
         : track.trackNumber;
-    final newTrackTotal = (needTrackTotal && hit.trackTotal != null)
-        ? hit.trackTotal
-        : track.trackTotal;
-    final newDisc =
-        (needDisc && hit.discNumber != null) ? hit.discNumber : track.discNumber;
-    final newProducer = (needProducer &&
+    final newTrackTotal =
+        (hit != null && needTrackTotal && hit.trackTotal != null)
+            ? hit.trackTotal
+            : track.trackTotal;
+    final newDisc = (hit != null && needDisc && hit.discNumber != null)
+        ? hit.discNumber
+        : track.discNumber;
+    final newProducer = (hit != null &&
+            needProducer &&
             hit.producer != null &&
             hit.producer!.trim().isNotEmpty)
         ? hit.producer!.trim()
         : track.producer;
+    if (needAlbumArtist &&
+        MetaLookupService.albumArtistMissing(newAlbumArtist) &&
+        newTrackTotal == 1) {
+      final copied = storedArtists(track.artist);
+      if (!isBlankMeta(copied)) newAlbumArtist = copied;
+    }
+    if (hit == null && newAlbumArtist == track.albumArtist) return null;
 
     if (newAlbum == track.album &&
         newAlbumArtist == track.albumArtist &&
