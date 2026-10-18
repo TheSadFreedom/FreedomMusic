@@ -201,15 +201,6 @@ class GeniusService {
       }
     }
 
-    if (albumName == null &&
-        albumArtist == null &&
-        year == null &&
-        genre == null &&
-        trackNumber == null &&
-        producer == null &&
-        lyrics == null) {
-      return null;
-    }
     return GeniusHit(
       album: albumName,
       albumArtist: albumArtist,

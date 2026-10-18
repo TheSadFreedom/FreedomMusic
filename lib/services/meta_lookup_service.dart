@@ -116,6 +116,22 @@ class MetaLookupService {
     final hit = await _genius.lookup(artist: artist, title: title);
     if (hit == null) return null;
     final lyrics = hit.lyrics?.trim();
+    final album = hit.album?.trim();
+    if (album == null || album.isEmpty) {
+      // No album block on the song page: this is a single.
+      return OnlineMetaHit(
+        album: title.trim(),
+        albumArtist: artist.trim(),
+        year: hit.year,
+        genre: hit.genre,
+        trackNumber: 1,
+        trackTotal: 1,
+        discNumber: 1,
+        producer: hit.producer,
+        lyrics: lyrics,
+        source: 'genius',
+      );
+    }
     if (!hit.hasMeta && (lyrics == null || lyrics.isEmpty)) return null;
     return OnlineMetaHit(
       album: hit.album,
