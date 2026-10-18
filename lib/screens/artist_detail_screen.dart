@@ -67,7 +67,6 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
     LibraryService library,
     List<Track> tracks,
   ) {
-    final self = widget.artist.toLowerCase();
     final grouped = <String, List<Track>>{};
     final labels = <String, String>{};
     for (final track in tracks) {
@@ -75,7 +74,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
       for (final name in track.artists) {
         final card = library.artistCardName(name).trim();
         final key = card.toLowerCase();
-        if (key.isEmpty || key == 'unknown' || key == self || !seen.add(key)) {
+        if (key.isEmpty || key == 'unknown' || !seen.add(key)) {
           continue;
         }
         labels.putIfAbsent(key, () => card);
@@ -374,7 +373,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
                   child: Text(
-                    'Нет треков с другими артистами.',
+                    'Нет сотрудничества.',
                     style: GoogleFonts.figtree(color: AppTheme.paperMuted),
                   ),
                 ),
