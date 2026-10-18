@@ -20,6 +20,7 @@ class SettingsService extends ChangeNotifier {
   static const _artistTagsRestoredKey = 'artist_tags_restored_v1';
   static const _artistPhotoPrefix = 'artist_photo_';
   static const _artistPhotoManualPrefix = 'artist_photo_manual_';
+  static const _releaseCoverPrefix = 'release_cover_';
 
   static Future<SettingsService> create() async {
     final prefs = await SharedPreferences.getInstance();
@@ -149,6 +150,18 @@ class SettingsService extends ChangeNotifier {
         await _prefs.setBool(manualKey, manual);
       }
     }
+    notifyListeners();
+  }
+
+  /// Track whose cover is shown for this album, EP, or single.
+  String? releaseCoverTrackKey(String releaseKey) {
+    final key = _prefs.getString('$_releaseCoverPrefix$releaseKey');
+    if (key == null || key.isEmpty) return null;
+    return key;
+  }
+
+  Future<void> setReleaseCoverTrackKey(String releaseKey, String trackKey) async {
+    await _prefs.setString('$_releaseCoverPrefix$releaseKey', trackKey);
     notifyListeners();
   }
 

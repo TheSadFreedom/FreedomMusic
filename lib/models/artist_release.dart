@@ -55,6 +55,29 @@ class ArtistRelease {
   int get trackCount => tracks.length;
 }
 
+/// Same album and the same album artists share one chosen cover.
+String releaseCoverKey(ArtistRelease release) {
+  final album = release.title.trim().toLowerCase();
+  final owners = releaseAlbumArtists(release)
+      .map((name) => name.trim().toLowerCase())
+      .toList()
+    ..sort();
+  return '$album\u0001${owners.join('\u0002')}';
+}
+
+/// Cover of [preferredTrackKey] when that track is in the release.
+/// Otherwise the first track that has a cover.
+String? coverFromTracks(List<Track> tracks, {String? preferredTrackKey}) {
+  String? first;
+  for (final track in tracks) {
+    final path = track.coverPath;
+    if (path == null || path.isEmpty) continue;
+    if (track.trackKey == preferredTrackKey) return path;
+    first ??= path;
+  }
+  return first;
+}
+
 /// Album artists in first-seen order.
 /// Uses the album-artist tag, otherwise the artists present on every track.
 List<String> releaseAlbumArtists(ArtistRelease release) {

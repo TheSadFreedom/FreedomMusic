@@ -1424,12 +1424,13 @@ class _ReleaseCard extends StatelessWidget {
       color: AppTheme.inkLift,
       child: const Icon(Icons.album, color: AppTheme.mossBright, size: 40),
     );
-    if (release.coverPath != null && File(release.coverPath!).existsSync()) {
-      cover = Image.file(File(release.coverPath!), fit: BoxFit.cover);
+    final path = context.read<LibraryService>().releaseCover(release);
+    if (path != null && File(path).existsSync()) {
+      cover = Image.file(File(path), fit: BoxFit.cover);
     }
 
     return TrackContextMenu(
-      actions: [releaseMetadataAction(context, release)],
+      actions: releaseMenuActions(context, release),
       child: InkWell(
       mouseCursor: SystemMouseCursors.click,
       onTap: onTap,

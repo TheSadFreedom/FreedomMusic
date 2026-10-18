@@ -1682,6 +1682,32 @@ class LibraryService extends ChangeNotifier {
     notifyListeners();
   }
 
+  String? releaseCoverTrackKey(ArtistRelease release) {
+    return _settings.releaseCoverTrackKey(releaseCoverKey(release));
+  }
+
+  /// Chosen track cover for an album, EP, or single. Falls back to the first cover.
+  String? releaseCover(ArtistRelease release) {
+    final preferred = _settings.releaseCoverTrackKey(releaseCoverKey(release));
+    final chosen = coverFromTracks(
+      release.tracks,
+      preferredTrackKey: preferred,
+    );
+    if (chosen != null && File(chosen).existsSync()) return chosen;
+    for (final track in release.tracks) {
+      final path = track.coverPath;
+      if (path != null && path.isNotEmpty && File(path).existsSync()) {
+        return path;
+      }
+    }
+    return chosen;
+  }
+
+  Future<void> setReleaseCover(ArtistRelease release, String trackKey) async {
+    await _settings.setReleaseCoverTrackKey(releaseCoverKey(release), trackKey);
+    notifyListeners();
+  }
+
   /// Merge [from] into [into] in the library index (MP3 tags are not rewritten).
   Future<void> mergeArtists({
     required String into,

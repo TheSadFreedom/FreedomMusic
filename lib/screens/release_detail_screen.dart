@@ -46,22 +46,26 @@ class _ReleaseDetailScreenState extends State<ReleaseDetailScreen> {
     ];
     if (tracks.isEmpty) return widget.release;
     int? year;
-    String? cover;
     for (final track in tracks) {
       final value = track.year;
       if (value != null && value > 0 && (year == null || value > year)) {
         year = value;
       }
-      final path = track.coverPath;
-      if (cover == null && path != null && path.isNotEmpty) cover = path;
     }
-    return ArtistRelease(
+    final draft = ArtistRelease(
       title: tracks.first.displayAlbum,
       tracks: tracks,
       kind: releaseKindForTracks(tracks),
       year: year,
-      coverPath: cover ?? widget.release.coverPath,
       credit: widget.release.credit,
+    );
+    return ArtistRelease(
+      title: draft.title,
+      tracks: tracks,
+      kind: draft.kind,
+      year: year,
+      coverPath: library.releaseCover(draft) ?? widget.release.coverPath,
+      credit: draft.credit,
     );
   }
 
@@ -133,7 +137,7 @@ class _ReleaseDetailScreenState extends State<ReleaseDetailScreen> {
               ),
               SliverToBoxAdapter(
                 child: TrackContextMenu(
-                  actions: [releaseMetadataAction(context, release)],
+                  actions: releaseMenuActions(context, release),
                   child: Stack(
                   children: [
                     const Positioned.fill(

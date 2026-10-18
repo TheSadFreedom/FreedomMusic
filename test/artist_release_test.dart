@@ -10,6 +10,7 @@ Track _track({
   String? albumArtist,
   int? number,
   int? trackTotal,
+  String? coverPath,
 }) {
   return Track(
     trackKey: key,
@@ -20,6 +21,7 @@ Track _track({
     albumArtist: albumArtist,
     trackNumber: number,
     trackTotal: trackTotal,
+    coverPath: coverPath,
   );
 }
 
@@ -217,6 +219,68 @@ void main() {
         ),
       ]),
       ReleaseKind.ep,
+    );
+  });
+
+  test('chosen track cover is used when that track is in the release', () {
+    final tracks = [
+      _track(
+        key: 'a',
+        title: 'Первый',
+        artist: 'A',
+        album: 'Альбом',
+        coverPath: 'a.jpg',
+      ),
+      _track(
+        key: 'b',
+        title: 'Второй',
+        artist: 'A',
+        album: 'Альбом',
+        coverPath: 'b.jpg',
+      ),
+    ];
+    expect(coverFromTracks(tracks), 'a.jpg');
+    expect(coverFromTracks(tracks, preferredTrackKey: 'b'), 'b.jpg');
+    expect(coverFromTracks(tracks, preferredTrackKey: 'gone'), 'a.jpg');
+  });
+
+  test('release cover key follows the album and its album artists', () {
+    ArtistRelease release(String title, List<Track> tracks) {
+      return ArtistRelease(
+        title: title,
+        tracks: tracks,
+        kind: ReleaseKind.album,
+      );
+    }
+
+    final first = _track(
+      key: '1',
+      title: 'Первый',
+      artist: 'A',
+      album: 'Огонь',
+      albumArtist: 'B, A',
+    );
+    final second = _track(
+      key: '2',
+      title: 'Второй',
+      artist: 'A',
+      album: 'Огонь',
+      albumArtist: 'A, B',
+    );
+    final other = _track(
+      key: '3',
+      title: 'Другой',
+      artist: 'C',
+      album: 'Огонь',
+      albumArtist: 'C',
+    );
+    expect(
+      releaseCoverKey(release('Огонь', [first, second])),
+      releaseCoverKey(release('Огонь', [second, first])),
+    );
+    expect(
+      releaseCoverKey(release('Огонь', [first])),
+      isNot(releaseCoverKey(release('Огонь', [other]))),
     );
   });
 }

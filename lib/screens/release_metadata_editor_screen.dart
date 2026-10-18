@@ -13,6 +13,7 @@ import '../services/metadata_writer.dart';
 import '../services/player_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/ambient_backdrop.dart';
+import '../widgets/release_cover_picker.dart';
 import '../widgets/track_overflow_menu.dart';
 
 const _kYellow = Color(0xFFFFDB4D);
@@ -28,6 +29,18 @@ Future<bool> openReleaseMetadataEditor(
     ),
   );
   return result ?? false;
+}
+
+List<TrackMenuAction> releaseMenuActions(
+  BuildContext context,
+  ArtistRelease release, {
+  VoidCallback? onSaved,
+}) {
+  final cover = releaseCoverMenuAction(context, release);
+  return [
+    releaseMetadataAction(context, release, onSaved: onSaved),
+    ?cover,
+  ];
 }
 
 TrackMenuAction releaseMetadataAction(

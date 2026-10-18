@@ -582,13 +582,16 @@ class _SearchPanel extends StatelessWidget {
             final kind = releaseKindLabel(album.release.kind);
             final mark = _HitStyle.of(context).mark;
             return TrackContextMenu(
-              actions: [releaseMetadataAction(context, album.release)],
+              actions: releaseMenuActions(context, album.release),
               child: _CompactHit(
                 title: metaFieldText(album.release.title),
                 detail: year == null
                     ? '$kind · ${album.artist}'
                     : '$kind · ${album.artist} · $year',
-                leading: _CoverMark(path: album.release.coverPath, size: mark),
+                leading: _CoverMark(
+                  path: library.releaseCover(album.release),
+                  size: mark,
+                ),
                 onTap: () {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(

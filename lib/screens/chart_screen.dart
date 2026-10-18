@@ -435,9 +435,11 @@ class _AlbumChartTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final artistName = splitArtists(row.artist).first;
     return TrackContextMenu(
-      actions: [
-        releaseMetadataAction(context, row.release, onSaved: onEdited),
-      ],
+      actions: releaseMenuActions(
+        context,
+        row.release,
+        onSaved: onEdited,
+      ),
       child: Material(
       color: Colors.transparent,
       child: InkWell(
@@ -470,7 +472,7 @@ class _AlbumChartTile extends StatelessWidget {
               ),
               const SizedBox(width: 4),
               TrackCoverPlay(
-                path: row.release.coverPath,
+                path: context.read<LibraryService>().releaseCover(row.release),
                 onPlay: onPlay,
               ),
               const SizedBox(width: 14),
