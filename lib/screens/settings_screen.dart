@@ -353,7 +353,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               icon: const ManageSearchGlyph(),
                               title: 'Поиск пустых метаданных',
                               description:
-                                  'Раскладывает треки по спискам: нехватает метаданных, Prod., жанра, текста — или метаданные готовы.',
+                                  'Раскладывает треки по спискам: нехватает метаданных, Prod., жанра, текста. «Метаданные готовы» не требует жанр.',
                               onPressed: busy
                                   ? null
                                   : () => library.reportEmptyMetadata(),

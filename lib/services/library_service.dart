@@ -412,12 +412,12 @@ class LibraryService extends ChangeNotifier {
         }
         processed++;
         final gaps = trackMetaGaps(track);
+        if (gaps.genre) genres++;
         if (gaps.ready) {
           ready++;
         } else {
           if (gaps.core) core++;
           if (gaps.producer) producers++;
-          if (gaps.genre) genres++;
           if (gaps.lyrics) lyrics++;
         }
         if (processed == total || processed % 250 == 0) {
@@ -1842,12 +1842,12 @@ class LibraryService extends ChangeNotifier {
     for (final track in _tracks) {
       if (track.isTrashed) continue;
       final gaps = trackMetaGaps(track);
+      if (gaps.genre) groups[Playlist.kindMissingGenre]!.add(track);
       if (gaps.ready) {
         groups[Playlist.kindMetadataReady]!.add(track);
       } else {
         if (gaps.core) groups[Playlist.kindIncomplete]!.add(track);
         if (gaps.producer) groups[Playlist.kindNoProducer]!.add(track);
-        if (gaps.genre) groups[Playlist.kindMissingGenre]!.add(track);
         if (gaps.lyrics) groups[Playlist.kindMissingLyrics]!.add(track);
       }
       seen++;

@@ -30,7 +30,7 @@ class Playlist {
   static const missingGenreDescription = 'Нет жанра.';
   static const missingLyricsDescription = 'Нет текста.';
   static const metadataReadyDescription =
-      'Обложка, название, артист, альбом, артист альбома, продюсер, жанр, год, номер, число треков, диск и текст заполнены.';
+      'Обложка, название, артист, альбом, артист альбома, продюсер, год, номер, число треков, диск и текст заполнены. Жанр не обязателен.';
 
   /// How long a freshly scanned track stays in «Новинки».
   static const newTrackDays = 7;

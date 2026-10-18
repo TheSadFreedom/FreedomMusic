@@ -16,7 +16,8 @@ class TrackMetaGaps {
   final bool genre;
   final bool lyrics;
 
-  bool get ready => !core && !producer && !genre && !lyrics;
+  /// Genre stays on its own list and does not block «Метаданные готовы».
+  bool get ready => !core && !producer && !lyrics;
 }
 
 TrackMetaGaps trackMetaGaps(Track track) {

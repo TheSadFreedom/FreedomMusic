@@ -65,6 +65,7 @@ void main() {
     final genre = trackMetaGaps(_track(genre: 'Unknown'));
     expect(genre.genre, isTrue);
     expect(genre.core, isFalse);
+    expect(genre.ready, isTrue);
 
     final lyrics = trackMetaGaps(_track(lyrics: '   '));
     expect(lyrics.lyrics, isTrue);
