@@ -452,6 +452,104 @@ class LibraryService extends ChangeNotifier {
     }
   }
 
+  /// Rewrite titles and albums that end with a feat. or prod credit.
+  Future<void> fixTitleCredits({
+    void Function(Track updated, String oldTrackKey)? onUpdated,
+  }) async {
+    if (_scanning) return;
+    _scanning = true;
+    _cancelFill = false;
+    _scanProgress = null;
+    _lastScanMessage = null;
+    _jobLog.clear();
+    notifyListeners();
+
+    try {
+      final tracks = await _db.getAllTracks(includeTrashed: true);
+      final total = tracks.length;
+      var changed = 0;
+      var checked = 0;
+      for (final track in tracks) {
+        if (_cancelFill) break;
+        checked++;
+        final title = stripTrailingCredit(track.title);
+        final album = stripTrailingCredit(track.album);
+        final newTitle = title.isEmpty || title == track.title.trim()
+            ? null
+            : title;
+        final newAlbum = album.isEmpty || album == track.album.trim()
+            ? null
+            : album;
+        _scanProgress = ScanProgress(
+          processed: checked,
+          total: total,
+          added: changed,
+          updated: 0,
+          skipped: checked - changed,
+          currentFile: '${track.displayArtist} — ${track.displayTitle}',
+        );
+        if (newTitle == null && newAlbum == null) {
+          if (checked == total || checked % 20 == 0) notifyListeners();
+          continue;
+        }
+        final draft = MetadataDraft.fromTrack(track);
+        if (newTitle != null) draft.title = newTitle;
+        if (newAlbum != null) draft.album = newAlbum;
+        try {
+          final updated = await saveTrackMetadata(
+            track,
+            draft,
+            refreshLibrary: false,
+            notify: false,
+          );
+          onUpdated?.call(updated, track.trackKey);
+          _pushJobLog(
+            JobLogEntry(
+              artist: track.displayArtist,
+              title: newTitle ?? track.displayTitle,
+              fields: [
+                if (newTitle != null) JobLogField('Название', newTitle),
+                if (newAlbum != null) JobLogField('Альбом', newAlbum),
+              ],
+              ok: true,
+              at: DateTime.now(),
+            ),
+          );
+          changed++;
+        } catch (e, st) {
+          debugPrint('title fix ${track.trackKey}: $e\n$st');
+          _pushJobLog(
+            JobLogEntry(
+              artist: track.displayArtist,
+              title: track.displayTitle,
+              fields: const [],
+              ok: false,
+              at: DateTime.now(),
+              error: '$e',
+            ),
+          );
+        }
+        notifyListeners();
+      }
+      await reload();
+      if (_cancelFill) {
+        _lastScanMessage = 'Правка названий остановлена. Исправлено: $changed.';
+      } else if (changed == 0) {
+        _lastScanMessage = 'Лишних feat. и prod в названиях нет.';
+      } else {
+        _lastScanMessage = 'Исправлено названий: $changed.';
+      }
+    } catch (e) {
+      _error = e.toString();
+      _lastScanMessage = 'Ошибка правки названий: $e';
+    } finally {
+      _scanning = false;
+      _cancelFill = false;
+      _scanProgress = null;
+      notifyListeners();
+    }
+  }
+
   /// Look up lyrics for tracks that have none and write only the lyrics tag.
   Future<void> fillMissingLyrics() async {
     if (_scanning) return;

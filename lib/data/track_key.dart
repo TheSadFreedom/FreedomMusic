@@ -44,6 +44,23 @@ String? storedPeople(String? raw) {
 /// Artist tag for storage. No real names means Unknown.
 String storedArtists(String? raw) => storedPeople(raw) ?? 'Unknown';
 
+final _trailingCredit = RegExp(
+  r'\s*(?:[-–—]\s*)?(?:[\(\[]\s*)?(?:produced|featuring|prod\.?|feat\.?|ft\.?)(?!\w)(?:\s+by\b)?\s+\S[^()\[\]]*(?:[\)\]])?\s*$',
+  caseSensitive: false,
+);
+
+/// Drop a credit stuck on the end of a title or album.
+/// «Song feat. Shakewell» and «Song (prod. by Name)» become «Song».
+String stripTrailingCredit(String raw) {
+  var text = raw.trim();
+  if (text.isEmpty) return text;
+  while (true) {
+    final next = text.replaceFirst(_trailingCredit, '').trim();
+    if (next.isEmpty || next == text) return text;
+    text = next;
+  }
+}
+
 /// Names in the producer tag. Empty tag is nobody, not "Unknown".
 List<String> producerNames(String? raw) {
   if (raw == null || raw.trim().isEmpty) return const [];

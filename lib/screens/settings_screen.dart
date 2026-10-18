@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../services/library_service.dart';
+import '../services/player_service.dart';
 import '../services/settings_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/ambient_backdrop.dart';
@@ -365,6 +366,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   onPressed: busy
                                       ? null
                                       : () => library.fillMissingLyrics(),
+                                ),
+                                _ActionTile(
+                                  icon: Icons.drive_file_rename_outline,
+                                  title: 'Названия',
+                                  subtitle:
+                                      'Убирает в конце feat. и prod by, в том числе в скобках.',
+                                  onPressed: busy
+                                      ? null
+                                      : () {
+                                          final player =
+                                              context.read<PlayerService>();
+                                          library.fixTitleCredits(
+                                            onUpdated: (updated, oldKey) {
+                                              player.syncTrack(
+                                                updated,
+                                                oldTrackKey: oldKey,
+                                              );
+                                            },
+                                          );
+                                        },
                                 ),
                                 _ActionTile(
                                   icon: Icons.face_retouching_natural_rounded,
@@ -859,13 +880,19 @@ class _ActionTile extends StatelessWidget {
                               color: accent.withValues(alpha: 0.9),
                             ),
                           )
-                        : Icon(
-                            icon,
-                            size: 18,
-                            color: enabled
-                                ? accent
-                                : accent.withValues(alpha: 0.4),
-                          ),
+                        : icon == Icons.drive_file_rename_outline && enabled
+                            ? const Icon(
+                                Icons.drive_file_rename_outline,
+                                size: 18,
+                                color: AppTheme.lime,
+                              )
+                            : Icon(
+                                icon,
+                                size: 18,
+                                color: enabled
+                                    ? accent
+                                    : accent.withValues(alpha: 0.4),
+                              ),
                   ),
                   const SizedBox(height: 8),
                   Text(
