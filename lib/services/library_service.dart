@@ -151,6 +151,7 @@ class LibraryService extends ChangeNotifier {
     await _db.ensureTrashPlaylist();
     await _db.ensureNewPlaylist();
     await _db.ensureIncompletePlaylist();
+    await _db.ensureNoProducerPlaylist();
     await _db.syncTrashPlaylistMembership();
     await _db.syncNewPlaylistMembership();
     _tracks = await _db.getAllTracks();
@@ -165,6 +166,10 @@ class LibraryService extends ChangeNotifier {
               trackTotal: track.trackTotal,
             ))
           track.trackKey,
+    ]);
+    await _db.syncNoProducerPlaylistMembership([
+      for (final track in tracksWithoutProducer())
+        if (!track.isTrashed) track.trackKey,
     ]);
     _playlists = await _db.getPlaylists();
     await _loadArtistAliases();
@@ -366,6 +371,41 @@ class LibraryService extends ChangeNotifier {
     }
   }
 
+  /// Site lookup that writes only the producer, for «Без продюсера».
+  Future<void> fillMissingProducers() async {
+    if (_scanning) return;
+    _scanning = true;
+    _cancelFill = false;
+    _scanProgress = null;
+    _lastScanMessage = null;
+    _jobLog.clear();
+    notifyListeners();
+
+    try {
+      final result = await _runMetadataPipeline(producersOnly: true);
+      await reload();
+      if (result.emptyCount == 0 && !result.cancelled) {
+        _lastScanMessage = 'Список «Без продюсера» пуст — заполнять нечего.';
+      } else if (result.cancelled) {
+        _lastScanMessage =
+            'Поиск продюсеров остановлен. В списке: ${result.emptyCount}. '
+            'Найдено: ${result.found}. Записано: ${result.filled}.';
+      } else {
+        _lastScanMessage =
+            'В списке без продюсера: ${result.emptyCount}. '
+            'Найдено: ${result.found}. Записано: ${result.filled}.';
+      }
+    } catch (e) {
+      _error = e.toString();
+      _lastScanMessage = 'Ошибка поиска продюсеров: $e';
+    } finally {
+      _scanning = false;
+      _cancelFill = false;
+      _scanProgress = null;
+      notifyListeners();
+    }
+  }
+
   /// Look up lyrics for tracks that have none and write only the lyrics tag.
   Future<void> fillMissingLyrics() async {
     if (_scanning) return;
@@ -417,11 +457,15 @@ class LibraryService extends ChangeNotifier {
         int found,
         int filled,
         bool cancelled,
-      })> _runMetadataPipeline() async {
+      })> _runMetadataPipeline({bool producersOnly = false}) async {
+    final source = producersOnly
+        ? tracksWithoutProducer()
+        : tracksMissingMetadata();
     final tracks = [
-      for (final track in tracksMissingMetadata())
+      for (final track in source)
         if (_canSearchMetadata(track)) track,
     ];
+    final emptyLabel = producersOnly ? 'Без продюсера' : 'Без метаданных';
     final total = tracks.length;
     final toSearch = _Pipe<Track>();
     final toWrite = _Pipe<({Track track, MetadataDraft draft, JobLogEntry entry})>();
@@ -447,7 +491,7 @@ class LibraryService extends ChangeNotifier {
         updated: found,
         skipped: total,
         currentFile: total == 0
-            ? 'Список «Без метаданных» пуст'
+            ? 'Список «$emptyLabel» пуст'
             : 'Список $total · проверено $searched · '
                 'найдено $found · записано $written$tail',
       );
@@ -460,7 +504,9 @@ class LibraryService extends ChangeNotifier {
         if (track == null) return;
         detail = 'Ищем на сайте: ${track.displayArtist} — ${track.displayTitle}';
         publish();
-        final prepared = await _lookupMetadata(track);
+        final prepared = producersOnly
+            ? await _lookupProducer(track)
+            : await _lookupMetadata(track);
         searched++;
         if (prepared != null) {
           found++;
@@ -526,6 +572,25 @@ class LibraryService extends ChangeNotifier {
       found: found,
       filled: written,
       cancelled: _cancelFill,
+    );
+  }
+
+  Future<({MetadataDraft draft, JobLogEntry entry})?> _lookupProducer(
+    Track track,
+  ) async {
+    if (!isBlankMeta(track.producer) || !_canSearchMetadata(track)) {
+      return null;
+    }
+    final hit = await _metaLookup.lookup(
+      artist: track.artist,
+      title: track.title,
+    );
+    final producer = hit?.producer?.trim();
+    if (isBlankMeta(producer)) return null;
+    final draft = MetadataDraft.fromTrack(track)..producer = producer;
+    return (
+      draft: draft,
+      entry: _metaLogEntry(track, producer: producer),
     );
   }
 
@@ -831,6 +896,21 @@ class LibraryService extends ChangeNotifier {
     final keys = map.keys.toList()
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     return {for (final k in keys) k: map[k]!};
+  }
+
+  /// Tracks whose producer tag is empty. They have no producer card.
+  List<Track> tracksWithoutProducer() {
+    final list = _tracks
+        .where((track) => producerNames(track.producer).isEmpty)
+        .toList();
+    list.sort((a, b) {
+      final byArtist = a.displayArtist.toLowerCase().compareTo(
+            b.displayArtist.toLowerCase(),
+          );
+      if (byArtist != 0) return byArtist;
+      return a.displayTitle.toLowerCase().compareTo(b.displayTitle.toLowerCase());
+    });
+    return list;
   }
 
   Future<List<ChartEntry>> chart(ChartPeriod period) {
@@ -1195,6 +1275,7 @@ class LibraryService extends ChangeNotifier {
     Track track,
     MetadataDraft draft, {
     bool refreshLibrary = true,
+    bool notify = true,
   }) async {
     final oldKey = track.trackKey;
     final updated = await MetadataWriter.write(
@@ -1218,8 +1299,10 @@ class LibraryService extends ChangeNotifier {
       final j = _tracks.indexWhere((t) => t.trackKey == updated.trackKey);
       if (j >= 0) _tracks[j] = updated;
     }
-    _invalidateSearch();
-    notifyListeners();
+    if (notify) {
+      _invalidateSearch();
+      notifyListeners();
+    }
     return updated;
   }
 
@@ -1408,6 +1491,9 @@ class LibraryService extends ChangeNotifier {
     final playlist = playlistById(id);
     if (playlist != null && playlist.isIncomplete) {
       return tracksMissingMetadata();
+    }
+    if (playlist != null && playlist.isNoProducer) {
+      return tracksWithoutProducer();
     }
     return _db.getPlaylistTracks(id);
   }

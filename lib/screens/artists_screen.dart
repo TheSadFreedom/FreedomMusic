@@ -400,10 +400,10 @@ class _ArtistGridTile extends StatelessWidget {
                     ),
                     Text(playsLabel, style: metaStyle),
                     const SizedBox(width: 3),
-                    Icon(
+                    const Icon(
                       Icons.headphones_rounded,
                       size: 12,
-                      color: AppTheme.paperMuted.withValues(alpha: 0.9),
+                      color: AppTheme.paperMuted,
                     ),
                   ],
                 ),
