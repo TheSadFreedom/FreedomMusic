@@ -317,126 +317,182 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const SizedBox(height: 12),
                       _SectionCard(
-                        title: 'Библиотека',
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                        title: 'Сканирование',
+                        child: _Group(
                           children: [
-                            _ActionRow(
-                              tiles: [
-                                _ActionTile(
-                                  icon: Icons.folder_open_rounded,
-                                  title: 'Скан',
-                                  subtitle:
-                                      'Без парсинга. Новые и изменённые файлы.',
-                                  onPressed: busy
-                                      ? null
-                                      : () => library.scanLibrary(),
-                                ),
-                                _ActionTile(
-                                  icon: Icons.refresh_rounded,
-                                  title: 'Полный скан',
-                                  subtitle:
-                                      'Без парсинга. Перечитывает все треки.',
-                                  onPressed: busy
-                                      ? null
-                                      : () => library.scanLibrary(force: true),
-                                ),
-                                _ActionTile(
-                                  icon: Icons.travel_explore_rounded,
-                                  title: 'Метаданные',
-                                  subtitle:
-                                      'Только «Без метаданных»: альбом, артист альбома, год, номер и число треков.',
-                                  onPressed: busy
-                                      ? null
-                                      : () => library.fillEmptyMetadata(),
-                                ),
-                                _ActionTile(
-                                  icon: Icons.headphones_rounded,
-                                  title: 'Продюсеры',
-                                  subtitle:
-                                      'Только «Без продюсера»: ищет и записывает продюсера.',
-                                  onPressed: busy
-                                      ? null
-                                      : () => library.fillMissingProducers(),
-                                ),
-                                _ActionTile(
-                                  icon: Icons.lyrics_outlined,
-                                  title: 'Тексты',
-                                  subtitle: 'Только текст песни.',
-                                  onPressed: busy
-                                      ? null
-                                      : () => library.fillMissingLyrics(),
-                                ),
-                                _ActionTile(
-                                  icon: Icons.edit_outlined,
-                                  glyph: const _TitlesGlyph(),
-                                  title: 'Названия',
-                                  subtitle:
-                                      'Убирает в конце feat. и prod by, в том числе в скобках.',
-                                  onPressed: busy
-                                      ? null
-                                      : () {
-                                          final player =
-                                              context.read<PlayerService>();
-                                          library.fixTitleCredits(
-                                            onUpdated: (updated, oldKey) {
-                                              player.syncTrack(
-                                                updated,
-                                                oldTrackKey: oldKey,
-                                              );
-                                            },
-                                          );
-                                        },
-                                ),
-                                _ActionTile(
-                                  icon: Icons.face_retouching_natural_rounded,
-                                  title: 'Фото',
-                                  subtitle: photosBusy
-                                      ? 'Ищем новые фото…'
-                                      : 'Ручные фото не перезаписываются.',
-                                  busy: photosBusy,
-                                  onPressed: busy
-                                      ? null
-                                      : () => _refreshArtistPhotos(library),
-                                ),
-                              ],
+                            _SettingAction(
+                              icon: const Icon(
+                                Icons.folder_open_rounded,
+                                size: 18,
+                              ),
+                              title: 'Сканировать папку music',
+                              description: 'Сканирует папку полностью.',
+                              onPressed: busy
+                                  ? null
+                                  : () => library.scanLibrary(force: true),
                             ),
-                            if (scanning || progress != null) ...[
-                              const SizedBox(height: 10),
-                              _JobProgress(
-                                label: progress == null
-                                    ? 'Подготовка…'
-                                    : '${progress.processed} / ${progress.total}'
-                                        '${progress.currentFile != null ? ' — ${progress.currentFile}' : ''}',
-                                value: progress?.ratio,
-                                onStop: scanning ? library.cancelScan : null,
+                            _SettingAction(
+                              icon: const Icon(
+                                Icons.fiber_new_rounded,
+                                size: 18,
                               ),
-                            ],
-                            if (photoProgress != null) ...[
-                              const SizedBox(height: 8),
-                              _JobProgress(
-                                label:
-                                    '${photoProgress.done} / ${photoProgress.total}'
-                                    '${photoProgress.updated > 0 ? ' · сохранено ${photoProgress.updated}' : ''}'
-                                    '${photoProgress.current != null ? ' — ${photoProgress.current}' : ''}',
-                                value: photoProgress.ratio,
-                              ),
-                            ],
-                            if (library.jobLog.isNotEmpty) ...[
-                              const SizedBox(height: 8),
-                              _JobLog(lines: library.jobLog),
-                            ],
-                            if (_photosMessage != null) ...[
-                              const SizedBox(height: 10),
-                              _StatusNote(text: _photosMessage!),
-                            ],
-                            if (library.lastScanMessage != null) ...[
-                              const SizedBox(height: 10),
-                              _StatusNote(text: library.lastScanMessage!),
-                            ],
+                              title: 'Поиск новых',
+                              description:
+                                  'Сканирует только новые файлы и не трогает то, что уже было добавлено.',
+                              onPressed: busy
+                                  ? null
+                                  : () => library.scanLibrary(newOnly: true),
+                            ),
                           ],
                         ),
                       ),
+                      const SizedBox(height: 12),
+                      _SectionCard(
+                        title: 'Метаданные',
+                        child: _Group(
+                          children: [
+                            _SettingAction(
+                              icon: const Icon(
+                                Icons.manage_search_rounded,
+                                size: 18,
+                              ),
+                              title: 'Поиск пустых метаданных',
+                              description:
+                                  'Раскладывает треки по спискам: нехватает метаданных, Prod., жанра, текста — или метаданные готовы.',
+                              onPressed: busy
+                                  ? null
+                                  : () => library.reportEmptyMetadata(),
+                            ),
+                            _SettingAction(
+                              icon: const Icon(
+                                Icons.travel_explore_rounded,
+                                size: 18,
+                              ),
+                              title: 'Заполнить пустые метаданные',
+                              description:
+                                  'Проходит все файлы, кроме списка «Метаданные готовы», и заполняет пустые поля.',
+                              onPressed: busy
+                                  ? null
+                                  : () => library.fillEmptyMetadata(),
+                            ),
+                            _SettingAction(
+                              icon: const Icon(
+                                Icons.headphones_rounded,
+                                size: 18,
+                              ),
+                              title: 'Поиск метаданных продюсеров',
+                              description:
+                                  'Проходит все файлы, кроме «Метаданные готовы», и записывает только продюсера.',
+                              onPressed: busy
+                                  ? null
+                                  : () => library.fillMissingProducers(),
+                            ),
+                            _SettingAction(
+                              icon: const Icon(
+                                Icons.lyrics_outlined,
+                                size: 18,
+                              ),
+                              title: 'Поиск текстов',
+                              description:
+                                  'Ищет текст песни и записывает его в файл.',
+                              onPressed: busy
+                                  ? null
+                                  : () => library.fillMissingLyrics(),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _SectionCard(
+                        title: 'Названия и фото',
+                        child: _Group(
+                          children: [
+                            _SettingAction(
+                              icon: const Icon(
+                                Icons.edit_outlined,
+                                size: 18,
+                              ),
+                              title: 'Фикс названий',
+                              description:
+                                  'Убирает в конце названия feat. и prod by, в том числе в скобках.',
+                              onPressed: busy
+                                  ? null
+                                  : () {
+                                      final player =
+                                          context.read<PlayerService>();
+                                      library.fixTitleCredits(
+                                        onUpdated: (updated, oldKey) {
+                                          player.syncTrack(
+                                            updated,
+                                            oldTrackKey: oldKey,
+                                          );
+                                        },
+                                      );
+                                    },
+                            ),
+                            _SettingAction(
+                              icon: const Icon(
+                                Icons.face_retouching_natural_rounded,
+                                size: 18,
+                              ),
+                              title: 'Поиск фотографий артистов',
+                              description:
+                                  'Ищет фото артистов. Ручные фото не перезаписываются.',
+                              onPressed: busy
+                                  ? null
+                                  : () => _refreshArtistPhotos(library),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (scanning ||
+                          progress != null ||
+                          photoProgress != null ||
+                          library.jobLog.isNotEmpty ||
+                          _photosMessage != null ||
+                          library.lastScanMessage != null) ...[
+                        const SizedBox(height: 12),
+                        _SectionCard(
+                          title: 'Ход работы',
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (scanning || progress != null)
+                                _JobProgress(
+                                  label: progress == null
+                                      ? 'Подготовка…'
+                                      : '${progress.processed} / ${progress.total}'
+                                          '${progress.currentFile != null ? ' — ${progress.currentFile}' : ''}',
+                                  value: progress?.ratio,
+                                  onStop: scanning ? library.cancelScan : null,
+                                ),
+                              if (photoProgress != null) ...[
+                                if (scanning || progress != null)
+                                  const SizedBox(height: 8),
+                                _JobProgress(
+                                  label:
+                                      '${photoProgress.done} / ${photoProgress.total}'
+                                      '${photoProgress.updated > 0 ? ' · сохранено ${photoProgress.updated}' : ''}'
+                                      '${photoProgress.current != null ? ' — ${photoProgress.current}' : ''}',
+                                  value: photoProgress.ratio,
+                                ),
+                              ],
+                              if (library.jobLog.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                _JobLog(lines: library.jobLog),
+                              ],
+                              if (_photosMessage != null) ...[
+                                const SizedBox(height: 10),
+                                _StatusNote(text: _photosMessage!),
+                              ],
+                              if (library.lastScanMessage != null) ...[
+                                const SizedBox(height: 10),
+                                _StatusNote(text: library.lastScanMessage!),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       _SectionCard(
                         title: 'Данные',
@@ -445,29 +501,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            _ActionRow(
-                              tiles: [
-                                _ActionTile(
-                                  icon: Icons.upload_rounded,
+                            _Group(
+                              children: [
+                                _SettingAction(
+                                  icon: const Icon(
+                                    Icons.upload_rounded,
+                                    size: 18,
+                                  ),
                                   title: 'Экспорт',
-                                  subtitle: 'Архив плейлистов, фото и истории.',
+                                  description:
+                                      'Архив плейлистов, фото и истории.',
                                   onPressed: busy
                                       ? null
                                       : () => _export(library),
                                 ),
-                                _ActionTile(
-                                  icon: Icons.download_rounded,
+                                _SettingAction(
+                                  icon: const Icon(
+                                    Icons.download_rounded,
+                                    size: 18,
+                                  ),
                                   title: 'Импорт',
-                                  subtitle:
+                                  description:
                                       'Заменит данные приложения из архива.',
                                   onPressed: busy
                                       ? null
                                       : () => _import(library),
                                 ),
-                                _ActionTile(
-                                  icon: Icons.restart_alt_rounded,
+                                _SettingAction(
+                                  icon: const Icon(
+                                    Icons.restart_alt_rounded,
+                                    size: 18,
+                                  ),
                                   title: 'Сбросить',
-                                  subtitle:
+                                  description:
                                       'Обнулить прослушивания. Плейлисты останутся.',
                                   danger: true,
                                   onPressed: busy
@@ -592,18 +658,21 @@ class _Group extends StatelessWidget {
         color: AppTheme.ink.withValues(alpha: 0.4),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Column(
-        children: [
-          for (var i = 0; i < children.length; i++) ...[
-            if (i > 0)
-              Divider(
-                height: 1,
-                thickness: 1,
-                color: AppTheme.paper.withValues(alpha: 0.06),
-              ),
-            children[i],
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Column(
+          children: [
+            for (var i = 0; i < children.length; i++) ...[
+              if (i > 0)
+                Divider(
+                  height: 1,
+                  thickness: 1,
+                  color: AppTheme.paper.withValues(alpha: 0.06),
+                ),
+              children[i],
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -799,136 +868,91 @@ class _SettingSwitch extends StatelessWidget {
   }
 }
 
-class _ActionRow extends StatelessWidget {
-  const _ActionRow({required this.tiles});
-
-  final List<_ActionTile> tiles;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final columns = tiles.length <= 3
-            ? tiles.length
-            : (constraints.maxWidth < 640 ? 3 : tiles.length);
-        final gap = 8.0;
-        final width = (constraints.maxWidth - gap * (columns - 1)) / columns;
-        return Wrap(
-          spacing: gap,
-          runSpacing: gap,
-          children: [
-            for (final tile in tiles) SizedBox(width: width, child: tile),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _TitlesGlyph extends StatelessWidget {
-  const _TitlesGlyph();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Icon(
-      Icons.edit_outlined,
-      size: 18,
-      color: AppTheme.lime,
-    );
-  }
-}
-
-class _ActionTile extends StatelessWidget {
-  const _ActionTile({
+class _SettingAction extends StatelessWidget {
+  const _SettingAction({
     required this.icon,
     required this.title,
-    required this.subtitle,
+    required this.description,
     required this.onPressed,
-    this.glyph,
-    this.busy = false,
     this.danger = false,
   });
 
-  final IconData icon;
-  final Widget? glyph;
+  final Widget icon;
   final String title;
-  final String subtitle;
+  final String description;
   final VoidCallback? onPressed;
-  final bool busy;
   final bool danger;
 
   @override
   Widget build(BuildContext context) {
+    final enabled = onPressed != null;
     final accent = danger ? const Color(0xFFFF8D7A) : AppTheme.lime;
-    final enabled = onPressed != null || busy;
-    return Tooltip(
-      message: subtitle,
-      waitDuration: const Duration(milliseconds: 400),
-      child: Material(
-          color: AppTheme.ink.withValues(alpha: enabled ? 0.45 : 0.28),
-          borderRadius: BorderRadius.circular(14),
-          child: InkWell(
-            onTap: onPressed,
-            mouseCursor: onPressed != null
-                ? SystemMouseCursors.click
-                : SystemMouseCursors.basic,
-            borderRadius: BorderRadius.circular(14),
-            hoverColor: accent.withValues(alpha: 0.08),
-            splashColor: accent.withValues(alpha: 0.14),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-              child: Column(
-                children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: accent.withValues(alpha: enabled ? 0.14 : 0.07),
-                      shape: BoxShape.circle,
-                    ),
-                    child: busy
-                        ? SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: accent.withValues(alpha: 0.9),
-                            ),
-                          )
-                        : glyph != null
-                            ? Opacity(
-                                opacity: enabled ? 1 : 0.4,
-                                child: glyph,
-                              )
-                            : Icon(
-                                icon,
-                                size: 18,
-                                color: enabled
-                                    ? accent
-                                    : accent.withValues(alpha: 0.4),
-                              ),
+    final titleColor = enabled
+        ? AppTheme.paper
+        : AppTheme.paper.withValues(alpha: 0.4);
+    final bodyColor = enabled
+        ? AppTheme.paperMuted
+        : AppTheme.paperMuted.withValues(alpha: 0.45);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onPressed,
+        mouseCursor: enabled
+            ? SystemMouseCursors.click
+            : SystemMouseCursors.basic,
+        hoverColor: accent.withValues(alpha: 0.07),
+        splashColor: accent.withValues(alpha: 0.12),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 11, 14, 11),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: enabled ? 0.14 : 0.07),
+                  shape: BoxShape.circle,
+                ),
+                child: Opacity(
+                  opacity: enabled ? 1 : 0.4,
+                  child: IconTheme(
+                    data: IconThemeData(color: accent, size: 18),
+                    child: icon,
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    title,
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.figtree(
-                      color: enabled
-                          ? AppTheme.paper
-                          : AppTheme.paper.withValues(alpha: 0.4),
-                      fontWeight: FontWeight.w700,
-                      fontSize: 12.5,
-                      height: 1.15,
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: GoogleFonts.figtree(
+                        color: titleColor,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        height: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      description,
+                      style: GoogleFonts.figtree(
+                        color: bodyColor,
+                        fontSize: 12.5,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
+      ),
     );
   }
 }
