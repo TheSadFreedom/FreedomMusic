@@ -362,23 +362,16 @@ int compareReleasesByYearDesc(ArtistRelease a, ArtistRelease b) {
   return a.title.toLowerCase().compareTo(b.title.toLowerCase());
 }
 
-/// Album/single listens: 1 listen = 70% of the sum of all track durations.
-/// Listening time stacks even when the same track is replayed.
+/// Album, EP, and single listens are the sum of their tracks' listens.
 int releaseListenCount(
   ArtistRelease release,
-  Map<String, int> listenMsByKey,
+  Map<String, int> playCountsByKey,
 ) {
-  var totalDurMs = 0;
-  var listenedMs = 0;
-  for (final t in release.tracks) {
-    final d = t.durationMs ?? 0;
-    if (d > 0) totalDurMs += d;
-    listenedMs += listenMsByKey[t.trackKey] ?? 0;
+  var total = 0;
+  for (final track in release.tracks) {
+    total += playCountsByKey[track.trackKey] ?? 0;
   }
-  if (totalDurMs <= 0) return 0;
-  final unit = (totalDurMs * 0.7).round();
-  if (unit <= 0) return 0;
-  return listenedMs ~/ unit;
+  return total;
 }
 
 String formatTrackCount(int n) {

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
+import '../data/track_key.dart';
 import '../models/artist_release.dart';
 import '../models/track.dart';
 import '../navigation/library_navigation.dart';
@@ -16,7 +17,9 @@ import '../widgets/ambient_backdrop.dart';
 import '../widgets/fullscreen_cover.dart';
 import '../widgets/listen_actions.dart';
 import '../widgets/track_cover_play.dart';
+import '../widgets/track_overflow_menu.dart';
 import '../widgets/track_meta_links.dart';
+import 'release_metadata_editor_screen.dart';
 
 /// Album / single page in Yandex Music style.
 class ReleaseDetailScreen extends StatefulWidget {
@@ -36,11 +39,41 @@ class ReleaseDetailScreen extends StatefulWidget {
 class _ReleaseDetailScreenState extends State<ReleaseDetailScreen> {
   Future<int>? _listensFuture;
 
-  String get _kindLabel =>
-      widget.release.kind == ReleaseKind.single ? 'Сингл' : 'Альбом';
+  ArtistRelease _liveRelease(LibraryService library) {
+    final tracks = <Track>[
+      for (final track in widget.release.tracks)
+        library.trackByKey(track.trackKey) ?? track,
+    ];
+    if (tracks.isEmpty) return widget.release;
+    int? year;
+    String? cover;
+    for (final track in tracks) {
+      final value = track.year;
+      if (value != null && value > 0 && (year == null || value > year)) {
+        year = value;
+      }
+      final path = track.coverPath;
+      if (cover == null && path != null && path.isNotEmpty) cover = path;
+    }
+    return ArtistRelease(
+      title: tracks.first.displayAlbum,
+      tracks: tracks,
+      kind: releaseKindForTracks(tracks),
+      year: year,
+      coverPath: cover ?? widget.release.coverPath,
+      credit: widget.release.credit,
+    );
+  }
 
-  List<String> get _releaseArtists {
-    final names = releaseAlbumArtists(widget.release);
+  String _kindLabel(ArtistRelease release) {
+    if (release.kind == ReleaseKind.single && release.tracks.length > 1) {
+      return 'Макси-Сингл';
+    }
+    return releaseKindLabel(release.kind);
+  }
+
+  List<String> _releaseArtists(ArtistRelease release) {
+    final names = releaseAlbumArtists(release);
     if (names.isNotEmpty) return names;
     final fallback = widget.primaryArtist.trim();
     if (fallback.isEmpty || fallback.toLowerCase() == 'unknown') {
@@ -49,22 +82,10 @@ class _ReleaseDetailScreenState extends State<ReleaseDetailScreen> {
     return [fallback];
   }
 
-  String get _artistsLine => _releaseArtists.join(', ');
-
-  String _tracksWord(int n) {
-    final mod10 = n % 10;
-    final mod100 = n % 100;
-    if (mod10 == 1 && mod100 != 11) return 'трек';
-    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
-      return 'трека';
-    }
-    return 'треков';
-  }
-
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _listensFuture ??= context.read<LibraryService>().listenMsAllTime().then(
+    _listensFuture ??= context.read<LibraryService>().playCountsAllTime().then(
           (map) => releaseListenCount(widget.release, map),
         );
   }
@@ -72,7 +93,10 @@ class _ReleaseDetailScreenState extends State<ReleaseDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final player = context.read<PlayerService>();
-    final release = widget.release;
+    final library = context.watch<LibraryService>();
+    final release = _liveRelease(library);
+    final artists = _releaseArtists(release);
+    final artistsLine = artists.join(', ');
     final tracks = List<Track>.from(release.tracks)
       ..sort((a, b) {
         final disc = (a.discNumber ?? 1).compareTo(b.discNumber ?? 1);
@@ -103,12 +127,14 @@ class _ReleaseDetailScreenState extends State<ReleaseDetailScreen> {
                   onPressed: () => Navigator.of(context).pop(),
                 ),
                 title: Text(
-                  release.title,
+                  metaFieldText(release.title),
                   style: GoogleFonts.syne(fontWeight: FontWeight.w700),
                 ),
               ),
               SliverToBoxAdapter(
-                child: Stack(
+                child: TrackContextMenu(
+                  actions: [releaseMetadataAction(context, release)],
+                  child: Stack(
                   children: [
                     const Positioned.fill(
                       child: AmbientBackdrop(
@@ -129,13 +155,13 @@ class _ReleaseDetailScreenState extends State<ReleaseDetailScreen> {
                                 const SizedBox(width: 28),
                                 Expanded(
                                   child: _Meta(
-                                    kindLabel: _kindLabel,
-                                    title: release.title,
-                                    artistsLine: _artistsLine,
+                                    kindLabel: _kindLabel(release),
+                                    title: metaFieldText(release.title),
+                                    artistsLine: artistsLine,
                                     year: release.year,
                                     listenCount: listens,
                                     onArtists: () =>
-                                        openArtists(context, _releaseArtists),
+                                        openArtists(context, artists),
                                     onListen: () => player.playTracks(tracks),
                                     onShuffle: () => player.playTracks(
                                       tracks,
@@ -153,14 +179,14 @@ class _ReleaseDetailScreenState extends State<ReleaseDetailScreen> {
                                 ),
                                 const SizedBox(height: 20),
                                 _Meta(
-                                  kindLabel: _kindLabel,
-                                  title: release.title,
-                                  artistsLine: _artistsLine,
+                                  kindLabel: _kindLabel(release),
+                                  title: metaFieldText(release.title),
+                                  artistsLine: artistsLine,
                                   year: release.year,
                                   listenCount: listens,
                                   centered: true,
                                   onArtists: () =>
-                                      openArtists(context, _releaseArtists),
+                                      openArtists(context, artists),
                                   onListen: () => player.playTracks(tracks),
                                   onShuffle: () => player.playTracks(
                                     tracks,
@@ -171,6 +197,7 @@ class _ReleaseDetailScreenState extends State<ReleaseDetailScreen> {
                             ),
                     ),
                   ],
+                  ),
                 ),
               ),
               SliverList(
@@ -178,7 +205,6 @@ class _ReleaseDetailScreenState extends State<ReleaseDetailScreen> {
                   (context, index) {
                     final track = tracks[index];
                     return _TrackRow(
-                      index: index + 1,
                       track: track,
                       onTap: () =>
                           player.playTracks(tracks, startIndex: index),
@@ -191,11 +217,7 @@ class _ReleaseDetailScreenState extends State<ReleaseDetailScreen> {
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(24, 20, 24, 40),
                   child: Text(
-                    [
-                      '${tracks.length} ${_tracksWord(tracks.length)}',
-                      if ((release.year ?? 0) > 0) '${release.year}',
-                      if (listens > 0) formatListenCount(listens),
-                    ].join(' · '),
+                    releaseCaption(release, listens),
                     style: GoogleFonts.figtree(
                       color: AppTheme.paperMuted,
                       fontSize: 13,
@@ -348,20 +370,25 @@ class _Meta extends StatelessWidget {
   }
 }
 
+String _trackNumberLabel(int? number) {
+  if (number == null || number < 1) return '—';
+  return '$number';
+}
+
 class _TrackRow extends StatelessWidget {
   const _TrackRow({
-    required this.index,
     required this.track,
     required this.onTap,
   });
 
-  final int index;
   final Track track;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
+    return TrackContextMenu(
+      actions: standardTrackActions(context, track),
+      child: InkWell(
       mouseCursor: SystemMouseCursors.click,
       onTap: onTap,
       child: Padding(
@@ -371,7 +398,7 @@ class _TrackRow extends StatelessWidget {
             SizedBox(
               width: 28,
               child: Text(
-                '$index',
+                _trackNumberLabel(track.trackNumber),
                 style: GoogleFonts.figtree(
                   color: AppTheme.paperMuted,
                   fontWeight: FontWeight.w700,
@@ -415,6 +442,7 @@ class _TrackRow extends StatelessWidget {
             ),
           ],
         ),
+      ),
       ),
     );
   }

@@ -15,6 +15,7 @@ import 'services/library_service.dart';
 import 'services/player_service.dart';
 import 'services/settings_service.dart';
 import 'theme/app_theme.dart';
+import 'widgets/app_player_layer.dart';
 import 'widgets/startup_splash.dart';
 
 bool get _isDesktop =>
@@ -175,7 +176,9 @@ class FreedomMusicApp extends StatelessWidget {
       builder: (context, child) {
         return TooltipVisibility(
           visible: false,
-          child: child ?? const SizedBox.shrink(),
+          child: AppPlayerLayer(
+            child: child ?? const SizedBox.shrink(),
+          ),
         );
       },
       home: const AppShell(),

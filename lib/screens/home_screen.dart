@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
+import '../data/track_key.dart';
+import '../models/artist_release.dart';
 import '../models/catalog_search.dart';
 import '../models/playlist.dart';
 import '../models/track.dart';
@@ -16,8 +18,10 @@ import '../theme/app_theme.dart';
 import '../utils/breakpoints.dart';
 import '../widgets/home_hero.dart';
 import '../widgets/track_meta_links.dart';
+import '../widgets/track_overflow_menu.dart';
 import 'playlists_screen.dart';
 import 'release_detail_screen.dart';
+import 'release_metadata_editor_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -354,7 +358,9 @@ class _NowPlaying extends StatelessWidget {
       );
     }
 
-    return Row(
+    return TrackContextMenu(
+      actions: standardTrackActions(context, track),
+      child: Row(
       key: ValueKey(track.trackKey),
       mainAxisAlignment: MainAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,
@@ -416,6 +422,7 @@ class _NowPlaying extends StatelessWidget {
           ),
         ),
       ],
+      ),
     );
   }
 }
@@ -508,14 +515,17 @@ class _SearchPanel extends StatelessWidget {
           itemBuilder: (context, index) {
             final track = results.tracks[index];
             final mark = _HitStyle.of(context).mark;
-            return _CompactHit(
-              title: track.displayTitle,
-              detail: track.displayArtist,
-              leading: _CoverMark(path: track.coverPath, size: mark),
-              onTap: () => context.read<PlayerService>().playTracks(
-                    results.tracks,
-                    startIndex: index,
-                  ),
+            return TrackContextMenu(
+              actions: standardTrackActions(context, track),
+              child: _CompactHit(
+                title: track.displayTitle,
+                detail: track.displayArtist,
+                leading: _CoverMark(path: track.coverPath, size: mark),
+                onTap: () => context.read<PlayerService>().playTracks(
+                      results.tracks,
+                      startIndex: index,
+                    ),
+              ),
             );
           },
         ),
@@ -563,26 +573,32 @@ class _SearchPanel extends StatelessWidget {
         ),
       if (results.albums.isNotEmpty)
         _SearchSection(
-          title: 'Альбомы',
+          title: 'Релизы',
           count: results.albums.length,
           itemBuilder: (context, index) {
             final album = results.albums[index];
             final year = album.release.year;
+            final kind = releaseKindLabel(album.release.kind);
             final mark = _HitStyle.of(context).mark;
-            return _CompactHit(
-              title: album.release.title,
-              detail: year == null ? album.artist : '${album.artist} · $year',
-              leading: _CoverMark(path: album.release.coverPath, size: mark),
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => ReleaseDetailScreen(
-                      release: album.release,
-                      primaryArtist: album.artist,
+            return TrackContextMenu(
+              actions: [releaseMetadataAction(context, album.release)],
+              child: _CompactHit(
+                title: metaFieldText(album.release.title),
+                detail: year == null
+                    ? '$kind · ${album.artist}'
+                    : '$kind · ${album.artist} · $year',
+                leading: _CoverMark(path: album.release.coverPath, size: mark),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => ReleaseDetailScreen(
+                        release: album.release,
+                        primaryArtist: album.artist,
+                      ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             );
           },
         ),
@@ -901,6 +917,11 @@ class _PlaylistMark extends StatelessWidget {
           AppTheme.lime,
           const Color(0xFF141414),
           Icons.article_outlined,
+        ),
+      Playlist.kindNoProducer => (
+          AppTheme.mossBright,
+          const Color(0xFF141414),
+          Icons.headphones_rounded,
         ),
       Playlist.kindTrash => (
           const Color(0xFF3A3330),

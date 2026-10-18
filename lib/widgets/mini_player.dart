@@ -4,20 +4,17 @@ import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../models/track.dart';
 import '../navigation/library_navigation.dart';
-import '../screens/metadata_editor_screen.dart';
 import '../services/library_service.dart';
 import '../services/player_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/breakpoints.dart';
 import '../utils/duration_format.dart';
 import '../utils/lyrics_format.dart';
-import '../utils/playlist_actions.dart';
 import 'lyrics_view.dart';
 import 'track_overflow_menu.dart';
 import '../utils/trash_actions.dart';
@@ -37,8 +34,6 @@ class MiniPlayer extends StatefulWidget {
 class _MiniPlayerState extends State<MiniPlayer> {
   bool _showLyrics = false;
   bool _showQueue = false;
-  final _lyricsPortal = OverlayPortalController();
-  final _barKey = GlobalKey();
   final _volumePortal = OverlayPortalController();
   final _volumeLink = LayerLink();
   Timer? _volumeHideTimer;
@@ -47,28 +42,14 @@ class _MiniPlayerState extends State<MiniPlayer> {
   void dispose() {
     _volumeHideTimer?.cancel();
     if (_volumePortal.isShowing) _volumePortal.hide();
-    if (_lyricsPortal.isShowing) _lyricsPortal.hide();
     super.dispose();
-  }
-
-  void _syncLyricsPortal() {
-    if (_showLyrics == _lyricsPortal.isShowing) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _showLyrics == _lyricsPortal.isShowing) return;
-      if (_showLyrics) {
-        _lyricsPortal.show();
-      } else {
-        _lyricsPortal.hide();
-      }
-    });
   }
 
   void _showVolumeHover() {
     _volumeHideTimer?.cancel();
-    setState(() {
-      _showLyrics = false;
-      _showQueue = false;
-    });
+    if (_showQueue) {
+      setState(() => _showQueue = false);
+    }
     if (!_volumePortal.isShowing) {
       _volumePortal.show();
       setState(() {});
@@ -87,6 +68,37 @@ class _MiniPlayerState extends State<MiniPlayer> {
     _volumeHideTimer?.cancel();
   }
 
+  void _publishLyrics({
+    required bool visible,
+    String title = '',
+    String? raw,
+    bool fetching = false,
+    bool notFound = false,
+  }) {
+    final presentation = context.read<LyricsPresentation>();
+    presentation.closeHandler = () {
+      if (!mounted) return;
+      setState(() => _showLyrics = false);
+    };
+    if (presentation.visible == visible &&
+        presentation.title == title &&
+        presentation.raw == raw &&
+        presentation.fetching == fetching &&
+        presentation.notFound == notFound) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      presentation.update(
+        visible: visible,
+        title: title,
+        raw: raw,
+        fetching: fetching,
+        notFound: notFound,
+      );
+    });
+  }
+
   void _hideVolume() {
     _volumeHideTimer?.cancel();
     if (_volumePortal.isShowing) {
@@ -102,13 +114,10 @@ class _MiniPlayerState extends State<MiniPlayer> {
     final track = player.current;
     if (track == null) {
       _hideVolume();
-      if (_showLyrics) {
-        _showLyrics = false;
-        _syncLyricsPortal();
-      }
+      if (_showLyrics) _showLyrics = false;
+      _publishLyrics(visible: false);
       return const SizedBox.shrink();
     }
-    _syncLyricsPortal();
 
     final progress = player.duration == null ||
             player.duration!.inMilliseconds == 0
@@ -121,6 +130,13 @@ class _MiniPlayerState extends State<MiniPlayer> {
     final lyricsFailed = library.lyricsLookupFailed(track.trackKey);
     final phone = isPhone(context);
     final wide = MediaQuery.sizeOf(context).width >= 720;
+    _publishLyrics(
+      visible: _showLyrics,
+      title: track.displayTitle,
+      raw: lyricsSource.lyrics,
+      fetching: lyricsFetching,
+      notFound: lyricsFailed && lyricsText.isEmpty,
+    );
 
     void toggleLyrics() {
       _hideVolume();
@@ -290,25 +306,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
       );
     }
 
-    return OverlayPortal(
-      controller: _lyricsPortal,
-      overlayChildBuilder: (context) {
-        return LyricsStage(
-          key: ValueKey(track.trackKey),
-          anchorKey: _barKey,
-          title: track.displayTitle,
-          raw: lyricsSource.lyrics,
-          fetching: lyricsFetching,
-          notFound: lyricsFailed && lyricsText.isEmpty,
-          onClose: () {
-            if (!mounted) return;
-            setState(() => _showLyrics = false);
-          },
-        );
-      },
-      child: KeyedSubtree(
-        key: _barKey,
-        child: Material(
+    return Material(
           color: Colors.transparent,
           child: SafeArea(
             top: false,
@@ -347,8 +345,6 @@ class _MiniPlayerState extends State<MiniPlayer> {
               ],
             ),
           ),
-        ),
-      ),
     );
   }
 
@@ -615,7 +611,9 @@ class _TrackInfo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return TrackContextMenu(
+      actions: standardTrackActions(context, track, copyTitle: true),
+      child: Row(
       children: [
         _Cover(path: track.coverPath),
         const SizedBox(width: 12),
@@ -646,38 +644,6 @@ class _TrackInfo extends StatelessWidget {
                       ),
                     ),
                   ),
-                  TrackOverflowMenu(
-                    dense: true,
-                    icon: Icons.more_horiz,
-                    actions: [
-                      TrackMenuAction(
-                        icon: Icons.edit_outlined,
-                        label: 'Метаданные',
-                        onSelected: () => openMetadataEditor(context, track),
-                      ),
-                      TrackMenuAction(
-                        icon: Icons.queue_music_rounded,
-                        label: 'В плейлист',
-                        onSelected: () => addTrackToPlaylist(context, track),
-                      ),
-                      TrackMenuAction(
-                        icon: Icons.copy_rounded,
-                        label: 'Копировать название',
-                        onSelected: () => Clipboard.setData(
-                          ClipboardData(
-                            text:
-                                '${track.displayArtist} - ${track.displayTitle}',
-                          ),
-                        ),
-                      ),
-                      TrackMenuAction(
-                        icon: Icons.delete_outline_rounded,
-                        label: 'В корзину',
-                        destructive: true,
-                        onSelected: () => moveTrackToTrash(context, track),
-                      ),
-                    ],
-                  ),
                 ],
               ),
               const SizedBox(height: 2),
@@ -702,6 +668,7 @@ class _TrackInfo extends StatelessWidget {
           ),
         ),
       ],
+      ),
     );
   }
 }
@@ -1268,7 +1235,9 @@ class _QueuePanel extends StatelessWidget {
                 return ReorderableDragStartListener(
                   key: ValueKey(t.trackKey),
                   index: index,
-                  child: Material(
+                  child: TrackContextMenu(
+                    actions: standardTrackActions(context, t, copyTitle: true),
+                    child: Material(
                     color: Colors.transparent,
                     child: InkWell(
                       mouseCursor: SystemMouseCursors.click,
@@ -1318,6 +1287,7 @@ class _QueuePanel extends StatelessWidget {
                         ),
                       ),
                     ),
+                  ),
                   ),
                 );
               },

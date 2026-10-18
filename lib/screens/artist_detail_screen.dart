@@ -16,8 +16,10 @@ import '../utils/playlist_actions.dart';
 import '../widgets/ambient_backdrop.dart';
 import '../widgets/listen_actions.dart';
 import '../widgets/track_cover_play.dart';
+import '../widgets/track_overflow_menu.dart';
 import '../widgets/track_meta_links.dart';
 import 'release_detail_screen.dart';
+import 'release_metadata_editor_screen.dart';
 
 /// Yandex Music–inspired artist page.
 class ArtistDetailScreen extends StatefulWidget {
@@ -43,9 +45,6 @@ class ArtistDetailScreen extends StatefulWidget {
 }
 
 class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
-  Map<String, int> _listenMs = const {};
-  bool _listenMsLoaded = false;
-
   List<Track> _liveTracks(LibraryService library) {
     final want = widget.artist.toLowerCase();
     final live = library.tracks
@@ -134,17 +133,6 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
         if (cb != ca) return cb.compareTo(ca);
         return a.displayTitle.toLowerCase().compareTo(b.displayTitle.toLowerCase());
       });
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_listenMsLoaded) return;
-    _listenMsLoaded = true;
-    context.read<LibraryService>().listenMsAllTime().then((map) {
-      if (!mounted) return;
-      setState(() => _listenMs = map);
-    });
   }
 
   String? _resolvePhoto(LibraryService library, List<Track> popular) {
@@ -269,39 +257,15 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
     );
   }
 
-  Future<void> _editPhoto(BuildContext context) async {
+  Future<void> _pickPhoto(BuildContext context) async {
     final library = context.read<LibraryService>();
-    final hasCustom = library.artistPhotoPath(widget.artist) != null;
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: AppTheme.inkLift,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.image_outlined),
-              title: const Text('Выбрать фото'),
-              onTap: () => Navigator.pop(context, 'pick'),
-            ),
-            if (hasCustom)
-              ListTile(
-                leading: const Icon(Icons.delete_outline),
-                title: const Text('Сбросить фото'),
-                onTap: () => Navigator.pop(context, 'clear'),
-              ),
-          ],
-        ),
-      ),
-    );
-    if (!context.mounted) return;
-    if (action == 'pick') {
-      final bytes = await pickImageBytes();
-      if (bytes == null || !context.mounted) return;
-      await library.setArtistPhoto(widget.artist, bytes);
-    } else if (action == 'clear') {
-      await library.clearArtistPhoto(widget.artist);
-    }
+    final bytes = await pickImageBytes();
+    if (bytes == null || !context.mounted) return;
+    await library.setArtistPhoto(widget.artist, bytes);
+  }
+
+  Future<void> _clearPhoto(BuildContext context) async {
+    await context.read<LibraryService>().clearArtistPhoto(widget.artist);
   }
 
   @override
@@ -324,6 +288,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
             cardName: library.artistCardName,
           );
     final albums = groups?.albums ?? const <ArtistRelease>[];
+    final eps = groups?.eps ?? const <ArtistRelease>[];
     final singles = groups?.singles ?? const <ArtistRelease>[];
     final appearances = groups?.appearances ?? const <ArtistRelease>[];
     final photoPath = _resolvePhoto(library, popular);
@@ -347,11 +312,13 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
           SliverToBoxAdapter(child: _Header(
             artist: widget.artist,
             photoPath: photoPath,
+            canClearPhoto: library.artistPhotoPath(widget.artist) != null,
             chartRank: widget.chartRank,
             trackCount: tracks.length,
             onListen: () => player.playTracks(popular, shuffle: false),
             onShuffle: () => player.playTracks(tracks, shuffle: true),
-            onEditPhoto: () => _editPhoto(context),
+            onPickPhoto: () => _pickPhoto(context),
+            onClearPhoto: () => _clearPhoto(context),
             onMerge: widget.byProducer ? null : () => _mergeArtist(context),
             roleLabel: widget.byProducer ? 'Продюсер' : 'Артист',
           )),
@@ -471,7 +438,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                         artist: widget.artist,
                         sectionTitle: 'Альбомы',
                         releases: albums,
-                        listenMsByKey: _listenMs,
+                        playCountsByKey: widget.trackPlayCounts,
                       ),
                     ),
                   );
@@ -482,7 +449,34 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
               child: _ReleaseCarousel(
                 releases: albums,
                 artist: widget.artist,
-                listenMsByKey: _listenMs,
+                playCountsByKey: widget.trackPlayCounts,
+              ),
+            ),
+          ],
+          if (eps.isNotEmpty) ...[
+            const SliverToBoxAdapter(child: SizedBox(height: 8)),
+            SliverToBoxAdapter(
+              child: _SectionTitle(
+                title: 'EP',
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => _ArtistAllReleasesScreen(
+                        artist: widget.artist,
+                        sectionTitle: 'EP',
+                        releases: eps,
+                        playCountsByKey: widget.trackPlayCounts,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: _ReleaseCarousel(
+                releases: eps,
+                artist: widget.artist,
+                playCountsByKey: widget.trackPlayCounts,
               ),
             ),
           ],
@@ -498,7 +492,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                         artist: widget.artist,
                         sectionTitle: 'Синглы',
                         releases: singles,
-                        listenMsByKey: _listenMs,
+                        playCountsByKey: widget.trackPlayCounts,
                       ),
                     ),
                   );
@@ -509,7 +503,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
               child: _ReleaseCarousel(
                 releases: singles,
                 artist: widget.artist,
-                listenMsByKey: _listenMs,
+                playCountsByKey: widget.trackPlayCounts,
               ),
             ),
           ],
@@ -525,7 +519,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                         artist: widget.artist,
                         sectionTitle: 'Участие в релизах',
                         releases: appearances,
-                        listenMsByKey: _listenMs,
+                        playCountsByKey: widget.trackPlayCounts,
                       ),
                     ),
                   );
@@ -536,7 +530,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
               child: _ReleaseCarousel(
                 releases: appearances,
                 artist: widget.artist,
-                listenMsByKey: _listenMs,
+                playCountsByKey: widget.trackPlayCounts,
               ),
             ),
           ],
@@ -552,22 +546,26 @@ class _Header extends StatelessWidget {
   const _Header({
     required this.artist,
     required this.photoPath,
+    required this.canClearPhoto,
     required this.chartRank,
     required this.trackCount,
     required this.onListen,
     required this.onShuffle,
-    required this.onEditPhoto,
+    required this.onPickPhoto,
+    required this.onClearPhoto,
     this.onMerge,
     this.roleLabel = 'Артист',
   });
 
   final String artist;
   final String? photoPath;
+  final bool canClearPhoto;
   final int chartRank;
   final int trackCount;
   final VoidCallback onListen;
   final VoidCallback onShuffle;
-  final VoidCallback onEditPhoto;
+  final VoidCallback onPickPhoto;
+  final VoidCallback onClearPhoto;
   final VoidCallback? onMerge;
   final String roleLabel;
 
@@ -575,10 +573,40 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 700;
 
-    final photo = _ArtistPhoto(
-      path: photoPath,
-      size: wide ? 180 : 140,
-      onEdit: onEditPhoto,
+    final photoSize = wide ? 180.0 : 140.0;
+    final photo = Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        _ArtistPhoto(path: photoPath, size: photoSize),
+        const SizedBox(width: 12),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _PhotoActionButton(
+              icon: const Icon(Icons.image_outlined, size: 18),
+              tooltip: 'Изменить фото',
+              onPressed: onPickPhoto,
+            ),
+            if (onMerge != null) ...[
+              const SizedBox(height: 8),
+              _PhotoActionButton(
+                icon: const Icon(Icons.merge_type_rounded, size: 18),
+                tooltip: 'Объединить артистов',
+                onPressed: onMerge!,
+              ),
+            ],
+            if (canClearPhoto) ...[
+              const SizedBox(height: 8),
+              _PhotoActionButton(
+                icon: const Icon(Icons.delete_outline, size: 18),
+                tooltip: 'Сбросить фото',
+                onPressed: onClearPhoto,
+              ),
+            ],
+          ],
+        ),
+      ],
     );
 
     final info = Column(
@@ -626,18 +654,6 @@ class _Header extends StatelessWidget {
           onListen: onListen,
           onShuffle: onShuffle,
           center: !wide,
-          extra: [
-            if (onMerge != null)
-              IconButton.filled(
-                style: IconButton.styleFrom(
-                  backgroundColor: ListenActions.yellow,
-                  foregroundColor: Colors.black,
-                  padding: EdgeInsets.zero,
-                ),
-                onPressed: onMerge,
-                icon: const Icon(Icons.merge_type_rounded, size: 22),
-              ),
-          ],
         ),
       ],
     );
@@ -677,47 +693,63 @@ class _Header extends StatelessWidget {
   }
 }
 
-class _ArtistPhoto extends StatefulWidget {
-  const _ArtistPhoto({
-    required this.path,
-    required this.size,
-    required this.onEdit,
+class _PhotoActionButton extends StatelessWidget {
+  const _PhotoActionButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
   });
 
-  final String? path;
-  final double size;
-  final VoidCallback onEdit;
-
-  @override
-  State<_ArtistPhoto> createState() => _ArtistPhotoState();
-}
-
-class _ArtistPhotoState extends State<_ArtistPhoto> {
-  bool _hover = false;
+  final Widget icon;
+  final String tooltip;
+  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    Widget image = ColoredBox(
-      color: AppTheme.inkLift,
-      child: Icon(
-        Icons.person,
-        size: widget.size * 0.45,
-        color: AppTheme.mossBright,
+    return IconButton(
+      onPressed: onPressed,
+      tooltip: tooltip,
+      mouseCursor: SystemMouseCursors.click,
+      style: IconButton.styleFrom(
+        backgroundColor: AppTheme.inkLift.withValues(alpha: 0.92),
+        foregroundColor: AppTheme.paper,
+        minimumSize: const Size(40, 40),
+        fixedSize: const Size(40, 40),
+        shape: const CircleBorder(),
+        side: BorderSide(color: AppTheme.paper.withValues(alpha: 0.12)),
       ),
+      icon: icon,
     );
-    if (widget.path != null && File(widget.path!).existsSync()) {
-      image = Image.file(File(widget.path!), fit: BoxFit.cover);
-    }
+  }
+}
+
+class _ArtistPhoto extends StatelessWidget {
+  const _ArtistPhoto({required this.path, required this.size});
+
+  final String? path;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final file = path != null && File(path!).existsSync() ? File(path!) : null;
+    final image = file == null
+        ? ColoredBox(
+            color: AppTheme.inkLift,
+            child: Icon(
+              Icons.person,
+              size: size * 0.45,
+              color: AppTheme.mossBright,
+            ),
+          )
+        : Image.file(file, fit: BoxFit.cover);
 
     return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
-        onTap: widget.onEdit,
+        onTap: () => _showArtistPhoto(context, file),
         child: Container(
-          width: widget.size,
-          height: widget.size,
+          width: size,
+          height: size,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             boxShadow: [
@@ -728,28 +760,52 @@ class _ArtistPhotoState extends State<_ArtistPhoto> {
               ),
             ],
           ),
-          child: ClipOval(
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                image,
-                if (_hover) ...[
-                  ColoredBox(color: Colors.black.withValues(alpha: 0.45)),
-                  const Center(
-                    child: Icon(
-                      Icons.edit_outlined,
-                      size: 40,
-                      color: Colors.white,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
+          child: ClipOval(child: image),
         ),
       ),
     );
   }
+}
+
+void _showArtistPhoto(BuildContext context, File? file) {
+  final side = MediaQuery.sizeOf(context).shortestSide * 0.72;
+  showDialog<void>(
+    context: context,
+    barrierColor: Colors.black.withValues(alpha: 0.82),
+    builder: (context) {
+      return GestureDetector(
+        onTap: () => Navigator.of(context).pop(),
+        child: Center(
+          child: GestureDetector(
+            onTap: () {},
+            child: SizedBox(
+              width: side,
+              height: side,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: ColoredBox(
+                  color: AppTheme.inkLift,
+                  child: file == null
+                      ? const Icon(
+                          Icons.person,
+                          size: 120,
+                          color: AppTheme.mossBright,
+                        )
+                      : InteractiveViewer(
+                          child: SizedBox(
+                            width: side,
+                            height: side,
+                            child: Image.file(file, fit: BoxFit.contain),
+                          ),
+                        ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+  );
 }
 
 class _MetaChip extends StatelessWidget {
@@ -833,7 +889,9 @@ class _PopularTrackRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
+    return TrackContextMenu(
+      actions: standardTrackActions(context, track),
+      child: InkWell(
       mouseCursor: SystemMouseCursors.click,
       onTap: onTap,
       child: Padding(
@@ -888,6 +946,7 @@ class _PopularTrackRow extends StatelessWidget {
             ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -1161,12 +1220,12 @@ class _ReleaseCarousel extends StatefulWidget {
   const _ReleaseCarousel({
     required this.releases,
     required this.artist,
-    required this.listenMsByKey,
+    required this.playCountsByKey,
   });
 
   final List<ArtistRelease> releases;
   final String artist;
-  final Map<String, int> listenMsByKey;
+  final Map<String, int> playCountsByKey;
 
   @override
   State<_ReleaseCarousel> createState() => _ReleaseCarouselState();
@@ -1246,7 +1305,7 @@ class _ReleaseCarouselState extends State<_ReleaseCarousel> {
                 return _ReleaseCard(
                   release: release,
                   artist: credit,
-                  listenCount: releaseListenCount(release, widget.listenMsByKey),
+                  listenCount: releaseListenCount(release, widget.playCountsByKey),
                   onTap: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
@@ -1356,10 +1415,9 @@ class _ReleaseCard extends StatelessWidget {
       cover = Image.file(File(release.coverPath!), fit: BoxFit.cover);
     }
 
-    final kind =
-        release.kind == ReleaseKind.single ? 'Сингл' : 'Альбом';
-
-    return InkWell(
+    return TrackContextMenu(
+      actions: [releaseMetadataAction(context, release)],
+      child: InkWell(
       mouseCursor: SystemMouseCursors.click,
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
@@ -1386,7 +1444,7 @@ class _ReleaseCard extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Text(
-              release.title,
+              metaFieldText(release.title),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: GoogleFonts.figtree(
@@ -1407,11 +1465,7 @@ class _ReleaseCard extends StatelessWidget {
               ),
             ),
             Text(
-              [
-                if (release.year != null && release.year! > 0) '${release.year}',
-                kind,
-                if (listenCount > 0) formatListenCount(listenCount),
-              ].join(' · '),
+              releaseCaption(release, listenCount),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: GoogleFonts.figtree(
@@ -1421,6 +1475,7 @@ class _ReleaseCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -1432,13 +1487,13 @@ class _ArtistAllReleasesScreen extends StatelessWidget {
     required this.artist,
     required this.sectionTitle,
     required this.releases,
-    required this.listenMsByKey,
+    required this.playCountsByKey,
   });
 
   final String artist;
   final String sectionTitle;
   final List<ArtistRelease> releases;
-  final Map<String, int> listenMsByKey;
+  final Map<String, int> playCountsByKey;
 
   void _open(BuildContext context, ArtistRelease release, String credit) {
     Navigator.of(context).push(
@@ -1478,7 +1533,7 @@ class _ArtistAllReleasesScreen extends StatelessWidget {
             release: release,
             artist: credit,
             width: null,
-            listenCount: releaseListenCount(release, listenMsByKey),
+            listenCount: releaseListenCount(release, playCountsByKey),
             onTap: () => _open(context, release, credit),
           );
         },

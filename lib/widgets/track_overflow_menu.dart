@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../models/track.dart';
+import '../screens/metadata_editor_screen.dart';
 import '../theme/app_theme.dart';
+import '../utils/playlist_actions.dart';
+import '../utils/trash_actions.dart';
 
 class TrackMenuAction {
   const TrackMenuAction({
@@ -17,34 +22,72 @@ class TrackMenuAction {
   final bool destructive;
 }
 
-/// Anchored dropdown for a track's ⋮ button.
-class TrackOverflowMenu extends StatefulWidget {
-  const TrackOverflowMenu({
+/// Metadata, playlist, and trash actions used by every track row.
+List<TrackMenuAction> standardTrackActions(
+  BuildContext context,
+  Track track, {
+  bool metadata = true,
+  bool playlist = true,
+  bool copyTitle = false,
+  bool trash = true,
+  VoidCallback? onMetadata,
+}) {
+  return [
+    if (metadata)
+      TrackMenuAction(
+        icon: Icons.edit_outlined,
+        label: 'Метаданные',
+        onSelected: onMetadata ?? () => openMetadataEditor(context, track),
+      ),
+    if (playlist)
+      TrackMenuAction(
+        icon: Icons.queue_music_rounded,
+        label: 'В плейлист',
+        onSelected: () => addTrackToPlaylist(context, track),
+      ),
+    if (copyTitle)
+      TrackMenuAction(
+        icon: Icons.copy_rounded,
+        label: 'Копировать название',
+        onSelected: () => Clipboard.setData(
+          ClipboardData(text: '${track.displayArtist} - ${track.displayTitle}'),
+        ),
+      ),
+    if (trash)
+      TrackMenuAction(
+        icon: Icons.delete_outline_rounded,
+        label: 'В корзину',
+        destructive: true,
+        onSelected: () => moveTrackToTrash(context, track),
+      ),
+  ];
+}
+
+/// Opens [actions] on a right-click over [child].
+class TrackContextMenu extends StatefulWidget {
+  const TrackContextMenu({
     super.key,
     required this.actions,
-    this.icon = Icons.more_vert,
-    this.dense = false,
+    required this.child,
   });
 
   final List<TrackMenuAction> actions;
-  final IconData icon;
-  final bool dense;
+  final Widget child;
 
   @override
-  State<TrackOverflowMenu> createState() => _TrackOverflowMenuState();
+  State<TrackContextMenu> createState() => _TrackContextMenuState();
 }
 
-class _TrackOverflowMenuState extends State<TrackOverflowMenu> {
+class _TrackContextMenuState extends State<TrackContextMenu> {
   final _menu = MenuController();
 
   @override
   Widget build(BuildContext context) {
+    if (widget.actions.isEmpty) return widget.child;
     final actions = widget.actions;
-    final icon = widget.icon;
-    final dense = widget.dense;
     return MenuAnchor(
       controller: _menu,
-      alignmentOffset: const Offset(0, 6),
+      consumeOutsideTap: true,
       style: MenuStyle(
         backgroundColor: const WidgetStatePropertyAll(Color(0xFF1E1E1E)),
         surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
@@ -116,40 +159,12 @@ class _TrackOverflowMenuState extends State<TrackOverflowMenu> {
         ),
       ],
       builder: (context, controller, child) {
-        final open = controller.isOpen;
-        void toggle() {
-          if (open) {
-            controller.close();
-          } else {
-            controller.open();
-          }
-        }
-
-        final glyph = Icon(
-          icon,
-          size: dense ? 18 : 20,
-          color: open ? AppTheme.paper : AppTheme.paperMuted,
-        );
-        if (dense) {
-          return InkWell(
-            onTap: toggle,
-            mouseCursor: SystemMouseCursors.click,
-            borderRadius: BorderRadius.circular(8),
-            child: Padding(
-              padding: const EdgeInsets.all(4),
-              child: glyph,
-            ),
-          );
-        }
-        return IconButton(
-          visualDensity: VisualDensity.compact,
-          style: const ButtonStyle(
-            foregroundColor: WidgetStatePropertyAll(AppTheme.paper),
-            backgroundColor: WidgetStatePropertyAll(Colors.transparent),
-            mouseCursor: WidgetStatePropertyAll(SystemMouseCursors.click),
-          ),
-          onPressed: toggle,
-          icon: glyph,
+        return GestureDetector(
+          behavior: HitTestBehavior.deferToChild,
+          onSecondaryTapDown: (details) {
+            controller.open(position: details.localPosition);
+          },
+          child: widget.child,
         );
       },
     );

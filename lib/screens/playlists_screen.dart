@@ -16,15 +16,16 @@ import '../widgets/ambient_backdrop.dart';
 import '../widgets/listen_actions.dart';
 import '../widgets/screen_title.dart';
 import '../widgets/track_cover_play.dart';
+import '../widgets/track_overflow_menu.dart';
 import '../widgets/track_meta_links.dart';
 import '../utils/trash_actions.dart';
 import '../widgets/track_tile.dart';
 import 'genres_screen.dart';
 
+const _yellow = Color(0xFFFFDB4D);
+
 class PlaylistsScreen extends StatelessWidget {
   const PlaylistsScreen({super.key});
-
-  static const _yellow = Color(0xFFFFDB4D);
 
   @override
   Widget build(BuildContext context) {
@@ -33,27 +34,17 @@ class PlaylistsScreen extends StatelessWidget {
     final mine = library.playlists.where((p) => !p.isSystem).toList();
     final genres = library.tracksByGenre();
     final missingCount = library.tracksMissingMetadata().length;
+    final producerCount = library.tracksWithoutProducer().length;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Stack(
       children: [
-        ScreenTitle(
-          title: 'Плейлисты',
-          trailing: FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: _yellow,
-              foregroundColor: Colors.black,
-              shape: const StadiumBorder(),
-              textStyle: GoogleFonts.figtree(fontWeight: FontWeight.w800),
-            ),
-            onPressed: () => _create(context),
-            icon: const Icon(Icons.add, size: 20),
-            label: const Text('Создать'),
-          ),
-        ),
-        Expanded(
-          child: ListView(
-            padding: const EdgeInsets.only(bottom: 48),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const ScreenTitle(title: 'Плейлисты'),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.only(bottom: 72),
             children: [
               _SectionTitle(
                 title: 'Системные',
@@ -65,7 +56,11 @@ class PlaylistsScreen extends StatelessWidget {
                       _itemForPlaylist(
                         context,
                         pl,
-                        count: pl.isIncomplete ? missingCount : pl.trackCount,
+                        count: pl.isIncomplete
+                            ? missingCount
+                            : pl.isNoProducer
+                                ? producerCount
+                                : pl.trackCount,
                       ),
                   ],
                 ),
@@ -76,7 +71,11 @@ class PlaylistsScreen extends StatelessWidget {
                     _itemForPlaylist(
                       context,
                       pl,
-                      count: pl.isIncomplete ? missingCount : pl.trackCount,
+                      count: pl.isIncomplete
+                          ? missingCount
+                          : pl.isNoProducer
+                              ? producerCount
+                              : pl.trackCount,
                     ),
                 ],
               ),
@@ -84,19 +83,10 @@ class PlaylistsScreen extends StatelessWidget {
                 title: 'Мои',
                 onTap: mine.isEmpty
                     ? null
-                    : () => _openGrid(
-                          context,
-                          title: 'Мои',
-                          items: [
-                            for (final pl in mine)
-                              _itemForPlaylist(
-                                context,
-                                pl,
-                                count: pl.trackCount,
-                                onRename: () => _rename(context, pl),
-                                onDelete: () => library.deletePlaylist(pl.id),
-                              ),
-                          ],
+                    : () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const _MyPlaylistsScreen(),
+                          ),
                         ),
               ),
               if (mine.isEmpty)
@@ -139,8 +129,15 @@ class PlaylistsScreen extends StatelessWidget {
                   ],
                 ),
               ],
-            ],
-          ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        Positioned(
+          right: 20,
+          bottom: 16,
+          child: _NewPlaylistButton(onPressed: () => _create(context)),
         ),
       ],
     );
@@ -152,8 +149,9 @@ class PlaylistsScreen extends StatelessWidget {
         int rank(Playlist p) {
           if (p.isNew) return 0;
           if (p.isIncomplete) return 1;
-          if (p.isTrash) return 2;
-          return 3;
+          if (p.isNoProducer) return 2;
+          if (p.isTrash) return 3;
+          return 4;
         }
 
         return rank(a).compareTo(rank(b));
@@ -242,23 +240,19 @@ class PlaylistsScreen extends StatelessWidget {
     if (playlist.isIncomplete) {
       return count == 0 ? 'Всё заполнено' : '$count без метаданных';
     }
-    return _tracksLabel(count);
+    if (playlist.isNoProducer) {
+      return count == 0 ? 'Все с продюсером' : '$count без продюсера';
+    }
+    return _trackCountLabel(count);
   }
 
-  String _tracksLabel(int count) {
-    final mod10 = count % 10;
-    final mod100 = count % 100;
-    if (mod10 == 1 && mod100 != 11) return '$count трек';
-    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
-      return '$count трека';
-    }
-    return '$count треков';
-  }
+  String _tracksLabel(int count) => _trackCountLabel(count);
 
   IconData _systemIcon(Playlist playlist) {
     if (playlist.isTrash) return Icons.delete_outline_rounded;
     if (playlist.isNew) return Icons.fiber_new_rounded;
     if (playlist.isIncomplete) return Icons.article_outlined;
+    if (playlist.isNoProducer) return Icons.headphones_rounded;
     return Icons.queue_music;
   }
 
@@ -266,56 +260,72 @@ class PlaylistsScreen extends StatelessWidget {
     if (playlist.isTrash) return AppTheme.paperMuted;
     if (playlist.isNew) return _yellow;
     if (playlist.isIncomplete) return AppTheme.lime;
+    if (playlist.isNoProducer) return AppTheme.mossBright;
     return AppTheme.mossBright;
   }
 
-  Future<void> _create(BuildContext context) async {
-    final library = context.read<LibraryService>();
-    final name = await _askName(context, title: 'Новый плейлист');
-    if (name == null || name.trim().isEmpty) return;
-    await library.createPlaylist(name);
-  }
+  Future<void> _create(BuildContext context) => _createPlaylist(context);
 
-  Future<void> _rename(BuildContext context, Playlist pl) async {
-    final library = context.read<LibraryService>();
-    final name = await _askName(
-      context,
-      title: 'Переименовать',
-      initial: pl.name,
-    );
-    if (name == null || name.trim().isEmpty) return;
-    await library.renamePlaylist(pl.id, name);
-  }
+  Future<void> _rename(BuildContext context, Playlist pl) =>
+      _renamePlaylist(context, pl);
+}
 
-  Future<String?> _askName(
-    BuildContext context, {
-    required String title,
-    String? initial,
-  }) {
-    final controller = TextEditingController(text: initial);
-    return showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: 'Название'),
-          onSubmitted: (v) => Navigator.pop(context, v),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Отмена'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text),
-            child: const Text('OK'),
-          ),
-        ],
+String _trackCountLabel(int count) {
+  final mod10 = count % 10;
+  final mod100 = count % 100;
+  if (mod10 == 1 && mod100 != 11) return '$count трек';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return '$count трека';
+  }
+  return '$count треков';
+}
+
+Future<void> _createPlaylist(BuildContext context) async {
+  final library = context.read<LibraryService>();
+  final name = await _askPlaylistName(context, title: 'Новый плейлист');
+  if (name == null || name.trim().isEmpty) return;
+  await library.createPlaylist(name);
+}
+
+Future<void> _renamePlaylist(BuildContext context, Playlist pl) async {
+  final library = context.read<LibraryService>();
+  final name = await _askPlaylistName(
+    context,
+    title: 'Переименовать',
+    initial: pl.name,
+  );
+  if (name == null || name.trim().isEmpty) return;
+  await library.renamePlaylist(pl.id, name);
+}
+
+Future<String?> _askPlaylistName(
+  BuildContext context, {
+  required String title,
+  String? initial,
+}) {
+  final controller = TextEditingController(text: initial);
+  return showDialog<String>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(title),
+      content: TextField(
+        controller: controller,
+        autofocus: true,
+        decoration: const InputDecoration(hintText: 'Название'),
+        onSubmitted: (v) => Navigator.pop(context, v),
       ),
-    );
-  }
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Отмена'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, controller.text),
+          child: const Text('OK'),
+        ),
+      ],
+    ),
+  );
 }
 
 class _CoverItem {
@@ -645,11 +655,50 @@ class _CoverCard extends StatelessWidget {
   }
 }
 
+class _MyPlaylistsScreen extends StatelessWidget {
+  const _MyPlaylistsScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    final library = context.watch<LibraryService>();
+    final mine = library.playlists.where((p) => !p.isSystem).toList();
+    return _PlaylistGridScreen(
+      title: 'Мои',
+      onCreate: () => _createPlaylist(context),
+      items: [
+        for (final pl in mine)
+          _CoverItem(
+            title: pl.name,
+            kind: 'Плейлист',
+            meta: _trackCountLabel(pl.trackCount),
+            coverPath: pl.coverPath,
+            icon: Icons.queue_music,
+            iconColor: AppTheme.mossBright,
+            onOpen: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => PlaylistDetailScreen(playlistId: pl.id),
+                ),
+              );
+            },
+            onRename: () => _renamePlaylist(context, pl),
+            onDelete: () => library.deletePlaylist(pl.id),
+          ),
+      ],
+    );
+  }
+}
+
 class _PlaylistGridScreen extends StatelessWidget {
-  const _PlaylistGridScreen({required this.title, required this.items});
+  const _PlaylistGridScreen({
+    required this.title,
+    required this.items,
+    this.onCreate,
+  });
 
   final String title;
   final List<_CoverItem> items;
+  final VoidCallback? onCreate;
 
   @override
   Widget build(BuildContext context) {
@@ -662,19 +711,52 @@ class _PlaylistGridScreen extends StatelessWidget {
           style: GoogleFonts.syne(fontWeight: FontWeight.w700),
         ),
       ),
-      body: GridView.builder(
-        padding: const EdgeInsets.fromLTRB(24, 8, 24, 48),
-        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: 180,
-          mainAxisSpacing: 18,
-          crossAxisSpacing: 14,
-          childAspectRatio: 0.62,
-        ),
-        itemCount: items.length,
-        itemBuilder: (context, index) {
-          return _CoverCard(item: items[index], width: null);
-        },
+      body: Stack(
+        children: [
+          GridView.builder(
+            padding: EdgeInsets.fromLTRB(24, 8, 24, onCreate == null ? 48 : 80),
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 180,
+              mainAxisSpacing: 18,
+              crossAxisSpacing: 14,
+              childAspectRatio: 0.62,
+            ),
+            itemCount: items.length,
+            itemBuilder: (context, index) {
+              return _CoverCard(item: items[index], width: null);
+            },
+          ),
+          if (onCreate != null)
+            Positioned(
+              right: 20,
+              bottom: 16,
+              child: _NewPlaylistButton(onPressed: onCreate!),
+            ),
+        ],
       ),
+    );
+  }
+}
+
+class _NewPlaylistButton extends StatelessWidget {
+  const _NewPlaylistButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: onPressed,
+      tooltip: 'Создать плейлист',
+      mouseCursor: SystemMouseCursors.click,
+      style: IconButton.styleFrom(
+        backgroundColor: _yellow,
+        foregroundColor: Colors.black,
+        minimumSize: const Size(44, 44),
+        fixedSize: const Size(44, 44),
+        shape: const CircleBorder(),
+      ),
+      icon: const Icon(Icons.add, size: 24),
     );
   }
 }
@@ -737,7 +819,9 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     final isTrash = pl.isTrash;
     final isNew = pl.isNew;
     final isIncomplete = pl.isIncomplete;
+    final isNoProducer = pl.isNoProducer;
     final isSystem = pl.isSystem;
+    final liveList = isIncomplete || isNoProducer;
 
     return Scaffold(
       backgroundColor: AppTheme.ink,
@@ -746,7 +830,9 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
         builder: (context, snapshot) {
           final tracks = isIncomplete
               ? library.tracksMissingMetadata()
-              : [
+              : isNoProducer
+                  ? library.tracksWithoutProducer()
+                  : [
                   for (final t in snapshot.data ?? const <Track>[])
                     library.trackByKey(t.trackKey) ?? t,
                 ];
@@ -785,7 +871,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
               ),
               SliverToBoxAdapter(
                 child: _PlaylistHeader(
-                  playlist: isIncomplete
+                  playlist: liveList
                       ? pl.copyWith(trackCount: tracks.length)
                       : pl,
                   dateLabel: dateLabel,
@@ -823,7 +909,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                   ),
                 ),
               ),
-              if (!isIncomplete &&
+              if (!liveList &&
                   snapshot.connectionState != ConnectionState.done)
                 const SliverFillRemaining(
                   child: Center(child: CircularProgressIndicator()),
@@ -838,7 +924,9 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                               ? 'Новых треков за ${Playlist.newTrackDays} дней нет.'
                               : isIncomplete
                                   ? 'Треков с пустыми метаданными нет.'
-                                  : 'Плейлист пуст.',
+                                  : isNoProducer
+                                      ? 'Треков без продюсера нет.'
+                                      : 'Плейлист пуст.',
                       style: GoogleFonts.figtree(color: AppTheme.paperMuted),
                     ),
                   ),
@@ -878,7 +966,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                                 _reload();
                               }
                             : null,
-                        onTrash: (isNew || isIncomplete)
+                        onTrash: (isNew || isIncomplete || isNoProducer)
                             ? () async {
                                 await moveTrackToTrash(context, track);
                                 _reload();
@@ -1077,6 +1165,7 @@ class _PlaylistHeader extends StatelessWidget {
     final isTrash = playlist.isTrash;
     final isNew = playlist.isNew;
     final isIncomplete = playlist.isIncomplete;
+    final isNoProducer = playlist.isNoProducer;
     final cover = _EditableCover(
       path: playlist.coverPath,
       size: wide ? 200 : 160,
@@ -1131,7 +1220,9 @@ class _PlaylistHeader extends StatelessWidget {
                           ? 'Автоматически за последние ${Playlist.newTrackDays} дней'
                           : isIncomplete
                               ? 'Альбом, артист альбома, год, номер или число треков не заполнены'
-                              : 'Добавить описание...')
+                              : isNoProducer
+                                  ? 'Продюсер не заполнен'
+                                  : 'Добавить описание...')
                   : playlist.description!,
               textAlign: wide ? TextAlign.left : TextAlign.center,
               style: GoogleFonts.figtree(
@@ -1149,7 +1240,9 @@ class _PlaylistHeader extends StatelessWidget {
                   ? '${playlist.trackCount} новинок · окно ${Playlist.newTrackDays} дней'
                   : isIncomplete
                       ? '${playlist.trackCount} без метаданных'
-                      : 'Обновлён $dateLabel · ${playlist.trackCount} треков',
+                      : isNoProducer
+                          ? '${playlist.trackCount} без продюсера'
+                          : 'Обновлён $dateLabel · ${playlist.trackCount} треков',
           textAlign: wide ? TextAlign.left : TextAlign.center,
           style: GoogleFonts.figtree(
             color: AppTheme.paperMuted.withValues(alpha: 0.8),
@@ -1309,6 +1402,11 @@ class _SystemCover extends StatelessWidget {
           const Color(0xFF141414),
           Icons.article_outlined,
         ),
+      Playlist.kindNoProducer => (
+          AppTheme.mossBright,
+          const Color(0xFF141414),
+          Icons.headphones_rounded,
+        ),
       Playlist.kindTrash => (
           const Color(0xFF3A3330),
           AppTheme.paper,
@@ -1372,7 +1470,35 @@ class _PlaylistTrackRowState extends State<_PlaylistTrackRow> {
   Widget build(BuildContext context) {
     final track = widget.track;
     final age = _newAgeLabel;
-    return MouseRegion(
+    final actions = <TrackMenuAction>[
+      ...standardTrackActions(
+        context,
+        track,
+        trash: widget.onTrash != null,
+      ),
+      if (widget.onRestore != null)
+        TrackMenuAction(
+          icon: Icons.restore_rounded,
+          label: 'Восстановить',
+          onSelected: widget.onRestore!,
+        ),
+      if (widget.onDeleteForever != null)
+        TrackMenuAction(
+          icon: Icons.delete_forever_rounded,
+          label: 'Удалить файл',
+          destructive: true,
+          onSelected: widget.onDeleteForever!,
+        ),
+      if (widget.onRemove != null)
+        TrackMenuAction(
+          icon: Icons.remove_circle_outline,
+          label: 'Убрать',
+          onSelected: widget.onRemove!,
+        ),
+    ];
+    return TrackContextMenu(
+      actions: actions,
+      child: MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
@@ -1464,6 +1590,7 @@ class _PlaylistTrackRowState extends State<_PlaylistTrackRow> {
             ),
           ),
         ),
+      ),
       ),
     );
   }

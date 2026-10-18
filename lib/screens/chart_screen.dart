@@ -9,6 +9,7 @@ import '../models/track.dart';
 import '../navigation/library_navigation.dart';
 import '../screens/metadata_editor_screen.dart';
 import '../screens/release_detail_screen.dart';
+import '../screens/release_metadata_editor_screen.dart';
 import '../services/library_service.dart';
 import '../services/player_service.dart';
 import '../services/settings_service.dart';
@@ -78,11 +79,11 @@ class _ChartScreenState extends State<ChartScreen> {
     final library = context.read<LibraryService>();
     final settings = context.read<SettingsService>();
     final entries = await library.chart(ChartPeriod.allTime);
-    final listenMs = await library.listenMsAllTime();
+    final playCounts = await library.playCountsAllTime();
     final trackRows = _rankTracks(entries, settings.chartSnapshot(ChartPeriod.allTime.name));
     final albumRows = _rankAlbums(
       library.tracks,
-      listenMs,
+      playCounts,
       settings.chartSnapshot('albums'),
     );
     await settings.saveChartSnapshot(ChartPeriod.allTime.name, {
@@ -109,7 +110,7 @@ class _ChartScreenState extends State<ChartScreen> {
 
   List<_AlbumChartRow> _rankAlbums(
     List<Track> tracks,
-    Map<String, int> listenMs,
+    Map<String, int> playCounts,
     Map<String, int> prev,
   ) {
     final groups = <String, List<Track>>{};
@@ -158,7 +159,7 @@ class _ChartScreenState extends State<ChartScreen> {
         rank: 0,
         release: release,
         artist: artistLabel[entry.key]!,
-        listens: releaseListenCount(release, listenMs),
+        listens: releaseListenCount(release, playCounts),
         delta: _RankDelta.same,
       ));
     }
@@ -300,7 +301,10 @@ class _ChartScreenState extends State<ChartScreen> {
                         Expanded(
                           child: _ChartColumn(
                             title: 'Альбомы',
-                            child: _AlbumChartList(rows: data.albums),
+                            child: _AlbumChartList(
+                              rows: data.albums,
+                              onEdited: _reload,
+                            ),
                           ),
                         ),
                       ],
@@ -361,9 +365,10 @@ class _ChartEmpty extends StatelessWidget {
 }
 
 class _AlbumChartList extends StatelessWidget {
-  const _AlbumChartList({required this.rows});
+  const _AlbumChartList({required this.rows, required this.onEdited});
 
   final List<_AlbumChartRow> rows;
+  final VoidCallback onEdited;
 
   @override
   Widget build(BuildContext context) {
@@ -381,13 +386,14 @@ class _AlbumChartList extends StatelessWidget {
     final player = context.read<PlayerService>();
     return ListView.builder(
       padding: const EdgeInsets.only(bottom: 16),
-      itemExtent: 64,
+      itemExtent: 78,
       itemCount: rows.length,
       itemBuilder: (context, index) {
         final row = rows[index];
         return _AlbumChartTile(
           row: row,
           onPlay: () => player.playTracks(row.release.tracks),
+          onEdited: onEdited,
         );
       },
     );
@@ -395,10 +401,15 @@ class _AlbumChartList extends StatelessWidget {
 }
 
 class _AlbumChartTile extends StatelessWidget {
-  const _AlbumChartTile({required this.row, required this.onPlay});
+  const _AlbumChartTile({
+    required this.row,
+    required this.onPlay,
+    required this.onEdited,
+  });
 
   final _AlbumChartRow row;
   final VoidCallback onPlay;
+  final VoidCallback onEdited;
 
   static final _rankStyle = GoogleFonts.figtree(
     color: AppTheme.paperMuted,
@@ -414,21 +425,34 @@ class _AlbumChartTile extends StatelessWidget {
     color: AppTheme.paperMuted,
     fontSize: 13,
   );
-  static final _playsStyle = GoogleFonts.figtree(
-    color: AppTheme.paperMuted.withValues(alpha: 0.55),
-    fontSize: 11,
+  static final _metaStyle = GoogleFonts.figtree(
+    color: AppTheme.paperMuted.withValues(alpha: 0.7),
+    fontSize: 12,
     fontWeight: FontWeight.w500,
   );
 
   @override
   Widget build(BuildContext context) {
     final artistName = splitArtists(row.artist).first;
-    return Material(
+    return TrackContextMenu(
+      actions: [
+        releaseMetadataAction(context, row.release, onSaved: onEdited),
+      ],
+      child: Material(
       color: Colors.transparent,
       child: InkWell(
         mouseCursor: SystemMouseCursors.click,
         hoverColor: Colors.white.withValues(alpha: 0.04),
-        onTap: onPlay,
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => ReleaseDetailScreen(
+                release: row.release,
+                primaryArtist: artistName,
+              ),
+            ),
+          );
+        },
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Row(
@@ -455,27 +479,11 @@ class _AlbumChartTile extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => ReleaseDetailScreen(
-                                release: row.release,
-                                primaryArtist: artistName,
-                              ),
-                            ),
-                          );
-                        },
-                        child: Text(
-                          row.release.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: _titleStyle,
-                        ),
-                      ),
+                    Text(
+                      metaFieldText(row.release.title),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: _titleStyle,
                     ),
                     const SizedBox(height: 2),
                     MouseRegion(
@@ -491,17 +499,20 @@ class _AlbumChartTile extends StatelessWidget {
                         ),
                       ),
                     ),
+                    const SizedBox(height: 2),
+                    Text(
+                      releaseCaption(row.release, row.listens),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: _metaStyle,
+                    ),
                   ],
                 ),
               ),
-              if (row.listens > 0) ...[
-                const SizedBox(width: 8),
-                Text('${row.listens}', style: _playsStyle),
-              ],
-              const SizedBox(width: 8),
             ],
           ),
         ),
+      ),
       ),
     );
   }
@@ -548,7 +559,26 @@ class _ChartTrackRow extends StatelessWidget {
     final track = row.entry.track;
     final plays = row.entry.playCount;
 
-    return Material(
+    return TrackContextMenu(
+      actions: [
+        TrackMenuAction(
+          icon: Icons.edit_outlined,
+          label: 'Метаданные',
+          onSelected: onEdit,
+        ),
+        TrackMenuAction(
+          icon: Icons.queue_music_rounded,
+          label: 'В плейлист',
+          onSelected: () => addTrackToPlaylist(context, track),
+        ),
+        TrackMenuAction(
+          icon: Icons.delete_outline_rounded,
+          label: 'В корзину',
+          destructive: true,
+          onSelected: () => moveTrackToTrash(context, track),
+        ),
+      ],
+      child: Material(
       color: Colors.transparent,
       child: InkWell(
         mouseCursor: SystemMouseCursors.click,
@@ -590,26 +620,6 @@ class _ChartTrackRow extends StatelessWidget {
                   const SizedBox(width: 8),
                   Text('$plays', style: _playsStyle),
                 ],
-                TrackOverflowMenu(
-                  actions: [
-                    TrackMenuAction(
-                      icon: Icons.edit_outlined,
-                      label: 'Метаданные',
-                      onSelected: onEdit,
-                    ),
-                    TrackMenuAction(
-                      icon: Icons.queue_music_rounded,
-                      label: 'В плейлист',
-                      onSelected: () => addTrackToPlaylist(context, track),
-                    ),
-                    TrackMenuAction(
-                      icon: Icons.delete_outline_rounded,
-                      label: 'В корзину',
-                      destructive: true,
-                      onSelected: () => moveTrackToTrash(context, track),
-                    ),
-                  ],
-                ),
                 const SizedBox(width: 8),
                 SizedBox(
                   width: 44,
@@ -623,6 +633,7 @@ class _ChartTrackRow extends StatelessWidget {
             ),
           ),
         ),
+      ),
     );
   }
 }

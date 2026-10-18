@@ -6,8 +6,6 @@ import '../navigation/library_navigation.dart';
 import '../screens/metadata_editor_screen.dart';
 import '../theme/app_theme.dart';
 import '../utils/duration_format.dart';
-import '../utils/playlist_actions.dart';
-import '../utils/trash_actions.dart';
 import 'track_cover_play.dart';
 import 'track_overflow_menu.dart';
 
@@ -35,7 +33,16 @@ class TrackTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
+    return TrackContextMenu(
+      actions: enableMetadataEdit || enableTrash
+          ? standardTrackActions(
+              context,
+              track,
+              metadata: enableMetadataEdit,
+              trash: enableTrash,
+            )
+          : const [],
+      child: Material(
       color: Colors.transparent,
       child: InkWell(
         mouseCursor: onTap != null || enableMetadataEdit || enableTrash
@@ -110,29 +117,7 @@ class TrackTile extends StatelessWidget {
               if (trailing != null) ...[
                 const SizedBox(width: 8),
                 trailing!,
-              ] else if (enableMetadataEdit || enableTrash)
-                TrackOverflowMenu(
-                  actions: [
-                    if (enableMetadataEdit)
-                      TrackMenuAction(
-                        icon: Icons.edit_outlined,
-                        label: 'Метаданные',
-                        onSelected: () => openMetadataEditor(context, track),
-                      ),
-                    TrackMenuAction(
-                      icon: Icons.queue_music_rounded,
-                      label: 'В плейлист',
-                      onSelected: () => addTrackToPlaylist(context, track),
-                    ),
-                    if (enableTrash)
-                      TrackMenuAction(
-                        icon: Icons.delete_outline_rounded,
-                        label: 'В корзину',
-                        destructive: true,
-                        onSelected: () => moveTrackToTrash(context, track),
-                      ),
-                  ],
-                ),
+              ],
               if (showDuration) ...[
                 const SizedBox(width: 8),
                 SizedBox(
@@ -152,6 +137,7 @@ class TrackTile extends StatelessWidget {
           ),
         ),
       ),
+    ),
     );
   }
 }

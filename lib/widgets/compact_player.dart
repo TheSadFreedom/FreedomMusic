@@ -11,6 +11,7 @@ import '../services/desktop_shell.dart';
 import '../services/library_service.dart';
 import '../services/player_service.dart';
 import '../theme/app_theme.dart';
+import 'track_overflow_menu.dart';
 
 const _kYellow = Color(0xFFFFDB4D);
 const _kIcon = Color(0xFFD4D0C8);
@@ -146,7 +147,13 @@ class _CompactPlaybackRow extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 )
-              : Column(
+              : TrackContextMenu(
+                  actions: standardTrackActions(
+                    context,
+                    track!,
+                    copyTitle: true,
+                  ),
+                  child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -175,6 +182,7 @@ class _CompactPlaybackRow extends StatelessWidget {
                       ),
                     ),
                   ],
+                  ),
                 ),
         ),
         const SizedBox(width: 8),

@@ -13,7 +13,6 @@ import '../utils/breakpoints.dart';
 import '../widgets/ambient_backdrop.dart';
 import '../widgets/app_title_bar.dart';
 import '../widgets/compact_player.dart';
-import '../widgets/mini_player.dart';
 import 'artists_screen.dart';
 import 'chart_screen.dart';
 import 'home_screen.dart';
@@ -248,7 +247,6 @@ class _AppShellState extends State<AppShell> {
             Expanded(
               child: desktop ? DragToResizeArea(child: body) : body,
             ),
-            const MiniPlayer(),
             if (!wide)
               NavigationBar(
                 selectedIndex: _index,

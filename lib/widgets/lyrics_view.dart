@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -7,13 +5,45 @@ import 'package:provider/provider.dart';
 import '../services/player_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/lyrics_format.dart';
-import 'app_title_bar.dart';
 
-/// Full-window lyrics. The player bar stays visible underneath.
-class LyricsStage extends StatefulWidget {
+/// What the player wants drawn behind the bar and above the rest of the app.
+class LyricsPresentation extends ChangeNotifier {
+  bool visible = false;
+  String title = '';
+  String? raw;
+  bool fetching = false;
+  bool notFound = false;
+  VoidCallback? closeHandler;
+
+  void requestClose() => closeHandler?.call();
+
+  void update({
+    required bool visible,
+    required String title,
+    required String? raw,
+    required bool fetching,
+    required bool notFound,
+  }) {
+    if (this.visible == visible &&
+        this.title == title &&
+        this.raw == raw &&
+        this.fetching == fetching &&
+        this.notFound == notFound) {
+      return;
+    }
+    this.visible = visible;
+    this.title = title;
+    this.raw = raw;
+    this.fetching = fetching;
+    this.notFound = notFound;
+    notifyListeners();
+  }
+}
+
+/// Lyrics fill the area above the player. The player itself is painted later.
+class LyricsStage extends StatelessWidget {
   const LyricsStage({
     super.key,
-    required this.anchorKey,
     required this.title,
     required this.raw,
     required this.fetching,
@@ -21,7 +51,6 @@ class LyricsStage extends StatefulWidget {
     required this.onClose,
   });
 
-  final GlobalKey anchorKey;
   final String title;
   final String? raw;
   final bool fetching;
@@ -29,80 +58,23 @@ class LyricsStage extends StatefulWidget {
   final VoidCallback onClose;
 
   @override
-  State<LyricsStage> createState() => _LyricsStageState();
-}
-
-class _LyricsStageState extends State<LyricsStage> with WidgetsBindingObserver {
-  double _top = 0;
-  double _bottom = 96;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _measure());
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeMetrics() {
-    _measure();
-  }
-
-  @override
-  void didUpdateWidget(covariant LyricsStage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _measure());
-  }
-
-  void _measure() {
-    if (!mounted) return;
-    final box = widget.anchorKey.currentContext?.findRenderObject() as RenderBox?;
-    final overlay = Overlay.maybeOf(context)?.context.findRenderObject() as RenderBox?;
-    if (box == null || overlay == null || !box.hasSize || !overlay.hasSize) {
-      return;
-    }
-    final origin = box.localToGlobal(Offset.zero, ancestor: overlay);
-    final bottom = (overlay.size.height - origin.dy).clamp(0.0, overlay.size.height);
-    final desktop = Platform.isWindows || Platform.isLinux || Platform.isMacOS;
-    final top = desktop
-        ? kAppTitleBarHeight
-        : MediaQuery.paddingOf(context).top;
-    if (top == _top && (bottom - _bottom).abs() < 0.5) return;
-    setState(() {
-      _top = top;
-      _bottom = bottom;
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final lines = parseLyricLines(widget.raw);
-    return Positioned(
-      left: 0,
-      right: 0,
-      top: _top,
-      bottom: _bottom,
-      child: Material(
-        color: AppTheme.ink,
-        child: Column(
-          children: [
-            _Header(title: widget.title, onClose: widget.onClose),
-            Expanded(
-              child: lines.isEmpty
-                  ? _EmptyLyrics(
-                      fetching: widget.fetching,
-                      notFound: widget.notFound,
-                    )
-                  : _LyricScroller(lines: lines),
-            ),
-          ],
-        ),
+    final lines = parseLyricLines(raw);
+    return Material(
+      color: AppTheme.ink,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _Header(title: title, onClose: onClose),
+          Expanded(
+            child: lines.isEmpty
+                ? _EmptyLyrics(
+                    fetching: fetching,
+                    notFound: notFound,
+                  )
+                : _LyricScroller(lines: lines),
+          ),
+        ],
       ),
     );
   }
@@ -285,10 +257,11 @@ class _LyricScrollerState extends State<_LyricScroller> {
       controller: _scroll,
       thumbVisibility: true,
       interactive: true,
+      scrollbarOrientation: ScrollbarOrientation.right,
       thickness: 8,
       radius: const Radius.circular(8),
       thumbColor: AppTheme.paperMuted.withValues(alpha: 0.55),
-      crossAxisMargin: 4,
+      crossAxisMargin: 2,
       mainAxisMargin: 8,
       padding: EdgeInsets.zero,
       child: ShaderMask(
@@ -309,12 +282,14 @@ class _LyricScrollerState extends State<_LyricScroller> {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final pad = constraints.maxHeight * 0.34;
+            // Right inset keeps lines clear of the volume capsule,
+            // which opens upward from the player into this stage.
             return SingleChildScrollView(
               controller: _scroll,
               padding: EdgeInsets.fromLTRB(
                 wide ? 72 : 28,
                 pad,
-                wide ? 28 : 20,
+                96,
                 pad,
               ),
               child: Column(
