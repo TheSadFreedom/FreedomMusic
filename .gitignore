@@ -50,3 +50,6 @@ app.*.map.json
 /dist/
 *.exe
 *.dll
+
+# Local Cursor rules
+.cursor/rules/
