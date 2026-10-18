@@ -835,8 +835,11 @@ class AppDatabase {
           WHEN '${Playlist.kindNew}' THEN 0
           WHEN '${Playlist.kindIncomplete}' THEN 1
           WHEN '${Playlist.kindNoProducer}' THEN 2
-          WHEN '${Playlist.kindTrash}' THEN 3
-          ELSE 4
+          WHEN '${Playlist.kindMissingGenre}' THEN 3
+          WHEN '${Playlist.kindMissingLyrics}' THEN 4
+          WHEN '${Playlist.kindMetadataReady}' THEN 5
+          WHEN '${Playlist.kindTrash}' THEN 6
+          ELSE 7
         END,
         p.created_at DESC
     ''');
@@ -870,22 +873,24 @@ class AppDatabase {
     });
   }
 
-  /// Creates the «Без метаданных» system playlist if missing. Returns its id.
-  Future<int> ensureIncompletePlaylist() async {
-    const description =
-        'Треки, у которых не заполнены альбом, артист альбома, год, номер или число треков.';
+  /// Creates a system playlist or refreshes its name and description.
+  Future<int> ensureSystemPlaylist({
+    required String systemKind,
+    required String name,
+    required String description,
+  }) async {
     final existing = await _db.query(
       'playlists',
       columns: ['id'],
       where: 'system_kind = ?',
-      whereArgs: [Playlist.kindIncomplete],
+      whereArgs: [systemKind],
       limit: 1,
     );
     if (existing.isNotEmpty) {
       final id = existing.first['id'] as int;
       await _db.update(
         'playlists',
-        {'description': description},
+        {'name': name, 'description': description},
         where: 'id = ?',
         whereArgs: [id],
       );
@@ -893,42 +898,21 @@ class AppDatabase {
     }
     final now = DateTime.now().millisecondsSinceEpoch;
     return _db.insert('playlists', {
-      'name': 'Без метаданных',
+      'name': name,
       'created_at': now,
       'updated_at': now,
       'description': description,
-      'system_kind': Playlist.kindIncomplete,
+      'system_kind': systemKind,
     });
   }
 
-  /// Creates the «Без продюсера» system playlist if missing. Returns its id.
-  Future<int> ensureNoProducerPlaylist() async {
-    const description = 'Треки, у которых не заполнен продюсер.';
-    final existing = await _db.query(
-      'playlists',
-      columns: ['id'],
-      where: 'system_kind = ?',
-      whereArgs: [Playlist.kindNoProducer],
-      limit: 1,
+  /// Creates the metadata-gap playlist if missing. Returns its id.
+  Future<int> ensureIncompletePlaylist() {
+    return ensureSystemPlaylist(
+      systemKind: Playlist.kindIncomplete,
+      name: Playlist.missingMetadataName,
+      description: Playlist.missingMetadataDescription,
     );
-    if (existing.isNotEmpty) {
-      final id = existing.first['id'] as int;
-      await _db.update(
-        'playlists',
-        {'description': description},
-        where: 'id = ?',
-        whereArgs: [id],
-      );
-      return id;
-    }
-    final now = DateTime.now().millisecondsSinceEpoch;
-    return _db.insert('playlists', {
-      'name': 'Без продюсера',
-      'created_at': now,
-      'updated_at': now,
-      'description': description,
-      'system_kind': Playlist.kindNoProducer,
-    });
   }
 
   /// Creates the Новинки system playlist if missing. Returns its id.
@@ -1239,41 +1223,18 @@ class AppDatabase {
     });
   }
 
-  /// Replace «Без метаданных» membership with [trackKeys], in that order.
-  Future<void> syncIncompletePlaylistMembership(List<String> trackKeys) async {
-    final id = await ensureIncompletePlaylist();
-    final now = DateTime.now().millisecondsSinceEpoch;
-    await _db.transaction((txn) async {
-      await txn.delete(
-        'playlist_tracks',
-        where: 'playlist_id = ?',
-        whereArgs: [id],
-      );
-      const chunk = 400;
-      for (var i = 0; i < trackKeys.length; i += chunk) {
-        final end = (i + chunk).clamp(0, trackKeys.length);
-        final batch = txn.batch();
-        for (var j = i; j < end; j++) {
-          batch.insert('playlist_tracks', {
-            'playlist_id': id,
-            'track_key': trackKeys[j],
-            'position': j,
-          });
-        }
-        await batch.commit(noResult: true);
-      }
-      await txn.update(
-        'playlists',
-        {'updated_at': now},
-        where: 'id = ?',
-        whereArgs: [id],
-      );
-    });
-  }
-
-  /// Replace «Без продюсера» membership with [trackKeys], in that order.
-  Future<void> syncNoProducerPlaylistMembership(List<String> trackKeys) async {
-    final id = await ensureNoProducerPlaylist();
+  /// Replace one system playlist's tracks, in [trackKeys] order.
+  Future<void> syncSystemPlaylistMembership({
+    required String systemKind,
+    required String name,
+    required String description,
+    required List<String> trackKeys,
+  }) async {
+    final id = await ensureSystemPlaylist(
+      systemKind: systemKind,
+      name: name,
+      description: description,
+    );
     final now = DateTime.now().millisecondsSinceEpoch;
     await _db.transaction((txn) async {
       await txn.delete(

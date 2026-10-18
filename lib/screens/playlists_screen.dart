@@ -19,6 +19,7 @@ import '../widgets/track_cover_play.dart';
 import '../widgets/track_overflow_menu.dart';
 import '../widgets/track_meta_links.dart';
 import '../utils/trash_actions.dart';
+import '../widgets/system_playlist_icon.dart';
 import '../widgets/track_tile.dart';
 import 'genres_screen.dart';
 
@@ -33,9 +34,6 @@ class PlaylistsScreen extends StatelessWidget {
     final system = _systemPlaylists(library.playlists);
     final mine = library.playlists.where((p) => !p.isSystem).toList();
     final genres = library.tracksByGenre();
-    final missingCount = library.tracksMissingMetadata().length;
-    final producerCount = library.tracksWithoutProducer().length;
-
     return Stack(
       children: [
         Column(
@@ -56,11 +54,8 @@ class PlaylistsScreen extends StatelessWidget {
                       _itemForPlaylist(
                         context,
                         pl,
-                        count: pl.isIncomplete
-                            ? missingCount
-                            : pl.isNoProducer
-                                ? producerCount
-                                : pl.trackCount,
+                        count: library.metaPlaylistTracks(pl)?.length ??
+                            pl.trackCount,
                       ),
                   ],
                 ),
@@ -71,11 +66,8 @@ class PlaylistsScreen extends StatelessWidget {
                     _itemForPlaylist(
                       context,
                       pl,
-                      count: pl.isIncomplete
-                          ? missingCount
-                          : pl.isNoProducer
-                              ? producerCount
-                              : pl.trackCount,
+                      count: library.metaPlaylistTracks(pl)?.length ??
+                          pl.trackCount,
                     ),
                 ],
               ),
@@ -150,8 +142,11 @@ class PlaylistsScreen extends StatelessWidget {
           if (p.isNew) return 0;
           if (p.isIncomplete) return 1;
           if (p.isNoProducer) return 2;
-          if (p.isTrash) return 3;
-          return 4;
+          if (p.isMissingGenre) return 3;
+          if (p.isMissingLyrics) return 4;
+          if (p.isMetadataReady) return 5;
+          if (p.isTrash) return 6;
+          return 7;
         }
 
         return rank(a).compareTo(rank(b));
@@ -238,10 +233,19 @@ class PlaylistsScreen extends StatelessWidget {
           : '$count за ${Playlist.newTrackDays} дн.';
     }
     if (playlist.isIncomplete) {
-      return count == 0 ? 'Всё заполнено' : '$count без метаданных';
+      return count == 0 ? 'Всё заполнено' : '$count без полей';
     }
     if (playlist.isNoProducer) {
-      return count == 0 ? 'Все с продюсером' : '$count без продюсера';
+      return count == 0 ? 'Все с продюсером' : '$count без Prod.';
+    }
+    if (playlist.isMissingGenre) {
+      return count == 0 ? 'Жанр есть у всех' : '$count без жанра';
+    }
+    if (playlist.isMissingLyrics) {
+      return count == 0 ? 'Текст есть у всех' : '$count без текста';
+    }
+    if (playlist.isMetadataReady) {
+      return count == 0 ? 'Пока пусто' : '$count готовы';
     }
     return _trackCountLabel(count);
   }
@@ -253,6 +257,9 @@ class PlaylistsScreen extends StatelessWidget {
     if (playlist.isNew) return Icons.fiber_new_rounded;
     if (playlist.isIncomplete) return Icons.article_outlined;
     if (playlist.isNoProducer) return Icons.headphones_rounded;
+    if (playlist.isMissingGenre) return Icons.sell_outlined;
+    if (playlist.isMissingLyrics) return Icons.lyrics_outlined;
+    if (playlist.isMetadataReady) return Icons.task_alt_rounded;
     return Icons.queue_music;
   }
 
@@ -261,6 +268,8 @@ class PlaylistsScreen extends StatelessWidget {
     if (playlist.isNew) return _yellow;
     if (playlist.isIncomplete) return AppTheme.lime;
     if (playlist.isNoProducer) return AppTheme.mossBright;
+    if (playlist.isMissingGenre) return _yellow;
+    if (playlist.isMetadataReady) return AppTheme.lime;
     return AppTheme.mossBright;
   }
 
@@ -268,6 +277,17 @@ class PlaylistsScreen extends StatelessWidget {
 
   Future<void> _rename(BuildContext context, Playlist pl) =>
       _renamePlaylist(context, pl);
+}
+
+String _metaEmptyLabel(Playlist playlist) {
+  return switch (playlist.systemKind) {
+    Playlist.kindIncomplete => 'Треков с пустыми метаданными нет.',
+    Playlist.kindNoProducer => 'Треков без продюсера нет.',
+    Playlist.kindMissingGenre => 'Треков без жанра нет.',
+    Playlist.kindMissingLyrics => 'Треков без текста нет.',
+    Playlist.kindMetadataReady => 'Треков с полными метаданными пока нет.',
+    _ => 'Плейлист пуст.',
+  };
 }
 
 String _trackCountLabel(int count) {
@@ -818,24 +838,20 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     final dateLabel = DateFormat.MMMd().format(pl.lastTouched);
     final isTrash = pl.isTrash;
     final isNew = pl.isNew;
-    final isIncomplete = pl.isIncomplete;
-    final isNoProducer = pl.isNoProducer;
     final isSystem = pl.isSystem;
-    final liveList = isIncomplete || isNoProducer;
+    final live = library.metaPlaylistTracks(pl);
+    final liveList = live != null;
 
     return Scaffold(
       backgroundColor: AppTheme.ink,
       body: FutureBuilder<List<Track>>(
         future: _future,
         builder: (context, snapshot) {
-          final tracks = isIncomplete
-              ? library.tracksMissingMetadata()
-              : isNoProducer
-                  ? library.tracksWithoutProducer()
-                  : [
-                  for (final t in snapshot.data ?? const <Track>[])
-                    library.trackByKey(t.trackKey) ?? t,
-                ];
+          final tracks = live ??
+              [
+                for (final t in snapshot.data ?? const <Track>[])
+                  library.trackByKey(t.trackKey) ?? t,
+              ];
           final filtered = _query.trim().isEmpty
               ? tracks
               : tracks
@@ -922,11 +938,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                           ? 'Корзина пуста.'
                           : isNew
                               ? 'Новых треков за ${Playlist.newTrackDays} дней нет.'
-                              : isIncomplete
-                                  ? 'Треков с пустыми метаданными нет.'
-                                  : isNoProducer
-                                      ? 'Треков без продюсера нет.'
-                                      : 'Плейлист пуст.',
+                              : _metaEmptyLabel(pl),
                       style: GoogleFonts.figtree(color: AppTheme.paperMuted),
                     ),
                   ),
@@ -966,7 +978,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                                 _reload();
                               }
                             : null,
-                        onTrash: (isNew || isIncomplete || isNoProducer)
+                        onTrash: (isNew || pl.isMetaCatalog)
                             ? () async {
                                 await moveTrackToTrash(context, track);
                                 _reload();
@@ -1166,6 +1178,9 @@ class _PlaylistHeader extends StatelessWidget {
     final isNew = playlist.isNew;
     final isIncomplete = playlist.isIncomplete;
     final isNoProducer = playlist.isNoProducer;
+    final isMissingGenre = playlist.isMissingGenre;
+    final isMissingLyrics = playlist.isMissingLyrics;
+    final isMetadataReady = playlist.isMetadataReady;
     final cover = _EditableCover(
       path: playlist.coverPath,
       size: wide ? 200 : 160,
@@ -1219,10 +1234,16 @@ class _PlaylistHeader extends StatelessWidget {
                       : isNew
                           ? 'Автоматически за последние ${Playlist.newTrackDays} дней'
                           : isIncomplete
-                              ? 'Альбом, артист альбома, год, номер или число треков не заполнены'
+                              ? Playlist.missingMetadataDescription
                               : isNoProducer
-                                  ? 'Продюсер не заполнен'
-                                  : 'Добавить описание...')
+                                  ? Playlist.missingProducerDescription
+                                  : isMissingGenre
+                                      ? Playlist.missingGenreDescription
+                                      : isMissingLyrics
+                                          ? Playlist.missingLyricsDescription
+                                          : isMetadataReady
+                                              ? Playlist.metadataReadyDescription
+                                              : 'Добавить описание...')
                   : playlist.description!,
               textAlign: wide ? TextAlign.left : TextAlign.center,
               style: GoogleFonts.figtree(
@@ -1239,10 +1260,16 @@ class _PlaylistHeader extends StatelessWidget {
               : isNew
                   ? '${playlist.trackCount} новинок · окно ${Playlist.newTrackDays} дней'
                   : isIncomplete
-                      ? '${playlist.trackCount} без метаданных'
+                      ? '${playlist.trackCount} без полей'
                       : isNoProducer
-                          ? '${playlist.trackCount} без продюсера'
-                          : 'Обновлён $dateLabel · ${playlist.trackCount} треков',
+                          ? '${playlist.trackCount} без Prod.'
+                          : isMissingGenre
+                              ? '${playlist.trackCount} без жанра'
+                              : isMissingLyrics
+                                  ? '${playlist.trackCount} без текста'
+                                  : isMetadataReady
+                                      ? '${playlist.trackCount} готовы'
+                                      : 'Обновлён $dateLabel · ${playlist.trackCount} треков',
           textAlign: wide ? TextAlign.left : TextAlign.center,
           style: GoogleFonts.figtree(
             color: AppTheme.paperMuted.withValues(alpha: 0.8),
@@ -1391,28 +1418,36 @@ class _SystemCover extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (Color background, Color foreground, IconData icon) = switch (kind) {
+    final (Color background, Color foreground) = switch (kind) {
       Playlist.kindNew => (
           const Color(0xFFFFDB4D),
           const Color(0xFF141414),
-          Icons.fiber_new_rounded,
         ),
       Playlist.kindIncomplete => (
           AppTheme.lime,
           const Color(0xFF141414),
-          Icons.article_outlined,
         ),
       Playlist.kindNoProducer => (
           AppTheme.mossBright,
           const Color(0xFF141414),
-          Icons.headphones_rounded,
+        ),
+      Playlist.kindMissingGenre => (
+          const Color(0xFFFFDB4D),
+          const Color(0xFF141414),
+        ),
+      Playlist.kindMissingLyrics => (
+          AppTheme.mossBright,
+          const Color(0xFF141414),
+        ),
+      Playlist.kindMetadataReady => (
+          AppTheme.lime,
+          const Color(0xFF141414),
         ),
       Playlist.kindTrash => (
           const Color(0xFF3A3330),
           AppTheme.paper,
-          Icons.delete_outline_rounded,
         ),
-      _ => (AppTheme.inkLift, AppTheme.mossBright, Icons.queue_music),
+      _ => (AppTheme.inkLift, AppTheme.mossBright),
     };
 
     return ColoredBox(
@@ -1421,7 +1456,11 @@ class _SystemCover extends StatelessWidget {
         builder: (context, constraints) {
           final side = constraints.biggest.shortestSide;
           return Center(
-            child: Icon(icon, color: foreground, size: side * 0.72),
+            child: SystemPlaylistIcon(
+              kind: kind,
+              color: foreground,
+              size: side * 0.46,
+            ),
           );
         },
       ),

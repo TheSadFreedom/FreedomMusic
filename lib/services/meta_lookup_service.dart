@@ -68,6 +68,23 @@ class MetaLookupService {
         trackTotal < 1;
   }
 
+  /// Names of the fields [needsFill] still treats as empty.
+  static List<String> missingFieldNames({
+    required String album,
+    String? albumArtist,
+    int? year,
+    int? trackNumber,
+    int? trackTotal,
+  }) {
+    return [
+      if (_albumMissing(album)) 'альбом',
+      if (albumArtistMissing(albumArtist)) 'артист альбома',
+      if (_yearMissing(year)) 'год',
+      if (trackNumber == null || trackNumber < 1) 'номер',
+      if (trackTotal == null || trackTotal < 1) 'число треков',
+    ];
+  }
+
   static bool albumArtistMissing(String? albumArtist) {
     final a = albumArtist?.trim().toLowerCase() ?? '';
     return a.isEmpty || a == 'unknown';

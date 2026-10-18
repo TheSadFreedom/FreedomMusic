@@ -14,6 +14,24 @@ class Playlist {
   static const kindNew = 'new';
   static const kindIncomplete = 'incomplete';
   static const kindNoProducer = 'no_producer';
+  static const kindMissingGenre = 'missing_genre';
+  static const kindMissingLyrics = 'missing_lyrics';
+  static const kindMetadataReady = 'metadata_ready';
+
+  static const missingMetadataName = 'Нехватает метаданных';
+  static const missingProducerName = 'Нехватает Prod.';
+  static const missingGenreName = 'Нехватает жанра';
+  static const missingLyricsName = 'Нехватает текста';
+  static const metadataReadyName = 'Метаданные готовы';
+
+  static const missingMetadataDescription =
+      'Нет обложки, названия, артиста, альбома, артиста альбома, года, номера, числа треков или диска.';
+  static const missingProducerDescription = 'Нет продюсера.';
+  static const missingGenreDescription = 'Нет жанра.';
+  static const missingLyricsDescription = 'Нет текста.';
+  static const metadataReadyDescription =
+      'Обложка, название, артист, альбом, артист альбома, продюсер, жанр, год, номер, число треков, диск и текст заполнены.';
+
   /// How long a freshly scanned track stays in «Новинки».
   static const newTrackDays = 7;
 
@@ -31,6 +49,15 @@ class Playlist {
   bool get isNew => systemKind == kindNew;
   bool get isIncomplete => systemKind == kindIncomplete;
   bool get isNoProducer => systemKind == kindNoProducer;
+  bool get isMissingGenre => systemKind == kindMissingGenre;
+  bool get isMissingLyrics => systemKind == kindMissingLyrics;
+  bool get isMetadataReady => systemKind == kindMetadataReady;
+  bool get isMetaCatalog =>
+      isIncomplete ||
+      isNoProducer ||
+      isMissingGenre ||
+      isMissingLyrics ||
+      isMetadataReady;
   bool get isSystem => systemKind != null;
 
   DateTime get lastTouched => updatedAt ?? createdAt;

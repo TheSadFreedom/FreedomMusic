@@ -17,6 +17,7 @@ import '../services/player_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/breakpoints.dart';
 import '../widgets/home_hero.dart';
+import '../widgets/system_playlist_icon.dart';
 import '../widgets/track_meta_links.dart';
 import '../widgets/track_overflow_menu.dart';
 import 'playlists_screen.dart';
@@ -907,31 +908,43 @@ class _PlaylistMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (Color background, Color foreground, IconData icon) = switch (playlist.systemKind) {
+    final (Color background, Color foreground) = switch (playlist.systemKind) {
       Playlist.kindNew => (
           const Color(0xFFFFDB4D),
           const Color(0xFF141414),
-          Icons.fiber_new_rounded,
         ),
       Playlist.kindIncomplete => (
           AppTheme.lime,
           const Color(0xFF141414),
-          Icons.article_outlined,
         ),
       Playlist.kindNoProducer => (
           AppTheme.mossBright,
           const Color(0xFF141414),
-          Icons.headphones_rounded,
+        ),
+      Playlist.kindMissingGenre => (
+          const Color(0xFFFFDB4D),
+          const Color(0xFF141414),
+        ),
+      Playlist.kindMissingLyrics => (
+          AppTheme.mossBright,
+          const Color(0xFF141414),
+        ),
+      Playlist.kindMetadataReady => (
+          AppTheme.lime,
+          const Color(0xFF141414),
         ),
       Playlist.kindTrash => (
           const Color(0xFF3A3330),
           AppTheme.paper,
-          Icons.delete_outline_rounded,
         ),
-      _ => (AppTheme.inkLift, AppTheme.mossBright, Icons.queue_music),
+      _ => (AppTheme.inkLift, AppTheme.mossBright),
     };
     final cover = playlist.coverPath;
-    Widget child = Icon(icon, color: foreground, size: size * 0.62);
+    Widget child = SystemPlaylistIcon(
+      kind: playlist.systemKind,
+      color: foreground,
+      size: size * 0.62,
+    );
     if (cover != null && cover.isNotEmpty && File(cover).existsSync()) {
       child = Image.file(
         File(cover),

@@ -68,6 +68,7 @@ class ScannerService {
   Future<ScanResult> scan({
     void Function(ScanProgress progress)? onProgress,
     bool force = false,
+    bool newOnly = false,
   }) async {
     _cancelRequested = false;
     await _paths.ensureDirectories();
@@ -116,6 +117,12 @@ class ScannerService {
         currentFile: p.basename(filePath),
       ));
 
+      // New-only walk leaves files that are already in the library alone.
+      if (!force && newOnly && prev != null) {
+        skipped++;
+        continue;
+      }
+
       if (!force && prev != null && prev == mtimeMs) {
         skipped++;
         continue;
@@ -143,7 +150,7 @@ class ScannerService {
 
     // Never prune missing files if cancelled — scan was incomplete.
     var actuallyRemoved = 0;
-    if (!cancelled) {
+    if (!cancelled && !(newOnly && !force)) {
       actuallyRemoved =
           existingMtimes.keys.toSet().difference(seenPaths).length;
       await _db.removeMissingFiles(seenPaths);

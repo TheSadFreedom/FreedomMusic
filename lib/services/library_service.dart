@@ -10,6 +10,7 @@ import 'package:path/path.dart' as p;
 import '../data/app_paths.dart';
 import '../data/database.dart';
 import '../data/track_key.dart';
+import '../data/track_meta.dart';
 import '../models/artist_release.dart';
 import '../models/catalog_search.dart';
 import '../models/playlist.dart';
@@ -156,27 +157,10 @@ class LibraryService extends ChangeNotifier {
   Future<void> reload() async {
     await _db.ensureTrashPlaylist();
     await _db.ensureNewPlaylist();
-    await _db.ensureIncompletePlaylist();
-    await _db.ensureNoProducerPlaylist();
     await _db.syncTrashPlaylistMembership();
     await _db.syncNewPlaylistMembership();
     _tracks = await _db.getAllTracks();
-    await _db.syncIncompletePlaylistMembership([
-      for (final track in _tracks)
-        if (!track.isTrashed &&
-            MetaLookupService.needsFill(
-              album: track.album,
-              albumArtist: track.albumArtist,
-              year: track.year,
-              trackNumber: track.trackNumber,
-              trackTotal: track.trackTotal,
-            ))
-          track.trackKey,
-    ]);
-    await _db.syncNoProducerPlaylistMembership([
-      for (final track in tracksWithoutProducer())
-        if (!track.isTrashed) track.trackKey,
-    ]);
+    await _syncMetaPlaylists();
     _playlists = await _db.getPlaylists();
     await _loadArtistAliases();
     _invalidateSearch();
@@ -336,7 +320,7 @@ class LibraryService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> scanLibrary({bool force = false}) async {
+  Future<void> scanLibrary({bool force = false, bool newOnly = false}) async {
     if (_scanning) return;
     _scanning = true;
     _cancelFill = false;
@@ -348,6 +332,7 @@ class LibraryService extends ChangeNotifier {
     try {
       final result = await _scanner.scan(
         force: force,
+        newOnly: newOnly,
         onProgress: (p) {
           _scanProgress = p;
           notifyListeners();
@@ -355,16 +340,20 @@ class LibraryService extends ChangeNotifier {
       );
 
       await reload();
-      final forceLabel = force ? 'Полный перескан. ' : '';
+      final modeLabel = force
+          ? 'Полный перескан. '
+          : newOnly
+              ? 'Только новые файлы. '
+              : '';
       if (result.cancelled) {
         _lastScanMessage =
-            '$forceLabel'
+            '$modeLabel'
             'Сканирование остановлено. '
             'Успели: новых ${result.added}, обновлено ${result.updated}, '
             'без изменений ${result.skipped}.';
       } else {
         _lastScanMessage =
-            '$forceLabel'
+            '$modeLabel'
             'Файлов: ${result.totalFiles}. '
             'Новых: ${result.added}, обновлено: ${result.updated}, '
             'без изменений: ${result.skipped}, удалено: ${result.removed}.';
@@ -372,6 +361,95 @@ class LibraryService extends ChangeNotifier {
     } catch (e) {
       _error = e.toString();
       _lastScanMessage = 'Ошибка сканирования: $e';
+    } finally {
+      _scanning = false;
+      _cancelFill = false;
+      _scanProgress = null;
+      notifyListeners();
+    }
+  }
+
+  /// Writes the metadata lists and records what is still empty. Does not edit files.
+  Future<void> reportEmptyMetadata() async {
+    if (_scanning) return;
+    _scanning = true;
+    _cancelFill = false;
+    _scanProgress = null;
+    _lastScanMessage = null;
+    _jobLog.clear();
+    notifyListeners();
+
+    try {
+      final tracks = [
+        for (final track in _tracks)
+          if (!track.isTrashed) track,
+      ];
+      final total = tracks.length;
+      var processed = 0;
+      var cancelled = false;
+      var core = 0;
+      var producers = 0;
+      var genres = 0;
+      var lyrics = 0;
+      var ready = 0;
+      for (final track in tracks) {
+        if (_cancelFill) {
+          cancelled = true;
+          break;
+        }
+        processed++;
+        final gaps = trackMetaGaps(track);
+        if (gaps.ready) {
+          ready++;
+        } else {
+          if (gaps.core) core++;
+          if (gaps.producer) producers++;
+          if (gaps.genre) genres++;
+          if (gaps.lyrics) lyrics++;
+          final lists = <String>[
+            if (gaps.core) Playlist.missingMetadataName,
+            if (gaps.producer) Playlist.missingProducerName,
+            if (gaps.genre) Playlist.missingGenreName,
+            if (gaps.lyrics) Playlist.missingLyricsName,
+          ];
+          _pushJobLog(
+            JobLogEntry(
+              artist: track.displayArtist,
+              title: track.displayTitle,
+              fields: [JobLogField('Списки', lists.join(', '))],
+              ok: true,
+              at: DateTime.now(),
+            ),
+          );
+        }
+        _scanProgress = ScanProgress(
+          processed: processed,
+          total: total,
+          added: ready,
+          updated: core,
+          skipped: 0,
+          currentFile: track.displayTitle,
+        );
+        if (processed == total || processed % 20 == 0) {
+          notifyListeners();
+        }
+      }
+      await _syncMetaPlaylists();
+      _playlists = await _db.getPlaylists();
+      final summary =
+          '${Playlist.missingMetadataName}: $core. '
+          '${Playlist.missingProducerName}: $producers. '
+          '${Playlist.missingGenreName}: $genres. '
+          '${Playlist.missingLyricsName}: $lyrics. '
+          '${Playlist.metadataReadyName}: $ready.';
+      if (cancelled) {
+        _lastScanMessage = 'Поиск остановлен. $summary';
+      } else {
+        _lastScanMessage = summary;
+      }
+    } catch (e) {
+      _error = e.toString();
+      _lastScanMessage = 'Ошибка поиска метаданных: $e';
     } finally {
       _scanning = false;
       _cancelFill = false;
@@ -396,14 +474,15 @@ class LibraryService extends ChangeNotifier {
       await reload();
       if (result.emptyCount == 0 && !result.cancelled) {
         _lastScanMessage =
-            'Список «Без метаданных» пуст — заполнять нечего.';
+            'Все файлы уже в «${Playlist.metadataReadyName}».';
       } else if (result.cancelled) {
         _lastScanMessage =
-            'Поиск метаданных остановлен. В списке: ${result.emptyCount}. '
+            'Поиск метаданных остановлен. Проверено: ${result.scanned}. '
             'Найдено: ${result.found}. Записано: ${result.filled}.';
       } else {
         _lastScanMessage =
-            'В списке без метаданных: ${result.emptyCount}. '
+            'Проверено файлов, кроме «${Playlist.metadataReadyName}»: '
+            '${result.emptyCount}. '
             'Найдено: ${result.found}. Записано: ${result.filled}.';
       }
     } catch (e) {
@@ -431,15 +510,17 @@ class LibraryService extends ChangeNotifier {
       final result = await _runMetadataPipeline(producersOnly: true);
       await reload();
       if (result.emptyCount == 0 && !result.cancelled) {
-        _lastScanMessage = 'Список «Без продюсера» пуст — заполнять нечего.';
+        _lastScanMessage =
+            'Все файлы уже в «${Playlist.metadataReadyName}».';
       } else if (result.cancelled) {
         _lastScanMessage =
-            'Поиск продюсеров остановлен. В списке: ${result.emptyCount}. '
+            'Поиск продюсеров остановлен. Проверено: ${result.scanned}. '
             'Найдено: ${result.found}. Записано: ${result.filled}.';
       } else {
         _lastScanMessage =
-            'В списке без продюсера: ${result.emptyCount}. '
-            'Найдено: ${result.found}. Записано: ${result.filled}.';
+            'Проверено файлов, кроме «${Playlist.metadataReadyName}»: '
+            '${result.emptyCount}. '
+            'Найдено: ${result.found}. Записано продюсеров: ${result.filled}.';
       }
     } catch (e) {
       _error = e.toString();
@@ -591,8 +672,7 @@ class LibraryService extends ChangeNotifier {
   }
 
   /// Site lookup and file write run at the same time.
-  /// Only tracks already in «Без метаданных» are queued: new files land there
-  /// after a library scan, and filled tracks leave the list.
+  /// Every library file is queued, except tracks already in «Метаданные готовы».
   /// Writing starts as soon as a lookup returns.
   Future<
       ({
@@ -602,14 +682,11 @@ class LibraryService extends ChangeNotifier {
         int filled,
         bool cancelled,
       })> _runMetadataPipeline({bool producersOnly = false}) async {
-    final source = producersOnly
-        ? tracksWithoutProducer()
-        : tracksMissingMetadata();
     final tracks = [
-      for (final track in source)
-        if (_canSearchMetadata(track)) track,
+      for (final track in _tracks)
+        if (!track.isTrashed && !trackMetaGaps(track).ready) track,
     ];
-    final emptyLabel = producersOnly ? 'Без продюсера' : 'Без метаданных';
+    final emptyLabel = Playlist.metadataReadyName;
     final total = tracks.length;
     final toSearch = _Pipe<Track>();
     final toWrite = _Pipe<({Track track, MetadataDraft draft, JobLogEntry entry})>();
@@ -635,8 +712,8 @@ class LibraryService extends ChangeNotifier {
         updated: found,
         skipped: total,
         currentFile: total == 0
-            ? 'Список «$emptyLabel» пуст'
-            : 'Список $total · проверено $searched · '
+            ? 'Все файлы в «$emptyLabel»'
+            : 'Кроме готовых: $total · проверено $searched · '
                 'найдено $found · записано $written$tail',
       );
       notifyListeners();
@@ -748,26 +825,6 @@ class LibraryService extends ChangeNotifier {
   Future<({MetadataDraft draft, JobLogEntry entry})?> _lookupMetadata(
     Track track,
   ) async {
-    if (!MetaLookupService.needsFill(
-      album: track.album,
-      albumArtist: track.albumArtist,
-      year: track.year,
-      trackNumber: track.trackNumber,
-      trackTotal: track.trackTotal,
-    )) {
-      return null;
-    }
-    if (track.title.trim().isEmpty ||
-        track.artist.trim().isEmpty ||
-        track.artist.toLowerCase() == 'unknown') {
-      return null;
-    }
-
-    final hit = await _metaLookup.lookup(
-      artist: track.artist,
-      title: track.title,
-    );
-
     final needAlbum = track.album.trim().isEmpty ||
         const {'unknown', 'мне нравится', 'мне нужен ui'}
             .contains(track.album.trim().toLowerCase());
@@ -778,6 +835,21 @@ class LibraryService extends ChangeNotifier {
     final needTrackTotal = track.trackTotal == null || track.trackTotal! < 1;
     final needDisc = track.discNumber == null || track.discNumber! < 1;
     final needProducer = isBlankMeta(track.producer);
+    if (!needAlbum &&
+        !needAlbumArtist &&
+        !needYear &&
+        !needTrackNo &&
+        !needTrackTotal &&
+        !needDisc &&
+        !needProducer) {
+      return null;
+    }
+    if (!_canSearchMetadata(track)) return null;
+
+    final hit = await _metaLookup.lookup(
+      artist: track.artist,
+      title: track.title,
+    );
 
     final newAlbum = (hit != null &&
             needAlbum &&
@@ -1668,29 +1740,109 @@ class LibraryService extends ChangeNotifier {
     }
   }
 
-  /// Tracks still missing album, album artist, year, number, or track total.
-  List<Track> tracksMissingMetadata() {
-    return [
+  /// Tracks for a metadata system playlist, or null for any other playlist.
+  List<Track>? metaPlaylistTracks(Playlist playlist) {
+    final pick = switch (playlist.systemKind) {
+      Playlist.kindIncomplete => (TrackMetaGaps gaps) => gaps.core,
+      Playlist.kindNoProducer => (TrackMetaGaps gaps) => gaps.producer,
+      Playlist.kindMissingGenre => (TrackMetaGaps gaps) => gaps.genre,
+      Playlist.kindMissingLyrics => (TrackMetaGaps gaps) => gaps.lyrics,
+      Playlist.kindMetadataReady => (TrackMetaGaps gaps) => gaps.ready,
+      _ => null,
+    };
+    if (pick == null) return null;
+    final list = <Track>[
       for (final track in _tracks)
-        if (!track.isTrashed &&
-            MetaLookupService.needsFill(
-              album: track.album,
-              albumArtist: track.albumArtist,
-              year: track.year,
-              trackNumber: track.trackNumber,
-              trackTotal: track.trackTotal,
-            ))
-          track,
+        if (!track.isTrashed && pick(trackMetaGaps(track))) track,
     ];
+    list.sort(_byArtistTitle);
+    return list;
+  }
+
+  /// Tracks still missing cover, title, artist, album fields, or disc.
+  List<Track> tracksMissingMetadata() {
+    final list = <Track>[
+      for (final track in _tracks)
+        if (!track.isTrashed && trackMetaGaps(track).core) track,
+    ];
+    list.sort(_byArtistTitle);
+    return list;
+  }
+
+  static int _byArtistTitle(Track a, Track b) {
+    final byArtist = a.displayArtist.toLowerCase().compareTo(
+          b.displayArtist.toLowerCase(),
+        );
+    if (byArtist != 0) return byArtist;
+    return a.displayTitle.toLowerCase().compareTo(
+          b.displayTitle.toLowerCase(),
+        );
+  }
+
+  Future<void> _syncMetaPlaylists() async {
+    final groups = <String, List<Track>>{
+      Playlist.kindIncomplete: [],
+      Playlist.kindNoProducer: [],
+      Playlist.kindMissingGenre: [],
+      Playlist.kindMissingLyrics: [],
+      Playlist.kindMetadataReady: [],
+    };
+    for (final track in _tracks) {
+      if (track.isTrashed) continue;
+      final gaps = trackMetaGaps(track);
+      if (gaps.ready) {
+        groups[Playlist.kindMetadataReady]!.add(track);
+        continue;
+      }
+      if (gaps.core) groups[Playlist.kindIncomplete]!.add(track);
+      if (gaps.producer) groups[Playlist.kindNoProducer]!.add(track);
+      if (gaps.genre) groups[Playlist.kindMissingGenre]!.add(track);
+      if (gaps.lyrics) groups[Playlist.kindMissingLyrics]!.add(track);
+    }
+    const specs = <(String, String, String)>[
+      (
+        Playlist.kindIncomplete,
+        Playlist.missingMetadataName,
+        Playlist.missingMetadataDescription,
+      ),
+      (
+        Playlist.kindNoProducer,
+        Playlist.missingProducerName,
+        Playlist.missingProducerDescription,
+      ),
+      (
+        Playlist.kindMissingGenre,
+        Playlist.missingGenreName,
+        Playlist.missingGenreDescription,
+      ),
+      (
+        Playlist.kindMissingLyrics,
+        Playlist.missingLyricsName,
+        Playlist.missingLyricsDescription,
+      ),
+      (
+        Playlist.kindMetadataReady,
+        Playlist.metadataReadyName,
+        Playlist.metadataReadyDescription,
+      ),
+    ];
+    for (final spec in specs) {
+      final tracks = groups[spec.$1]!;
+      tracks.sort(_byArtistTitle);
+      await _db.syncSystemPlaylistMembership(
+        systemKind: spec.$1,
+        name: spec.$2,
+        description: spec.$3,
+        trackKeys: [for (final track in tracks) track.trackKey],
+      );
+    }
   }
 
   Future<List<Track>> playlistTracks(int id) async {
     final playlist = playlistById(id);
-    if (playlist != null && playlist.isIncomplete) {
-      return tracksMissingMetadata();
-    }
-    if (playlist != null && playlist.isNoProducer) {
-      return tracksWithoutProducer();
+    if (playlist != null) {
+      final live = metaPlaylistTracks(playlist);
+      if (live != null) return live;
     }
     return _db.getPlaylistTracks(id);
   }
