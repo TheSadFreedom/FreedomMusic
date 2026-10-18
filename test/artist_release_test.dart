@@ -9,6 +9,7 @@ Track _track({
   required String album,
   String? albumArtist,
   int? number,
+  int? trackTotal,
 }) {
   return Track(
     trackKey: key,
@@ -18,6 +19,7 @@ Track _track({
     genre: 'Unknown',
     albumArtist: albumArtist,
     trackNumber: number,
+    trackTotal: trackTotal,
   );
 }
 
@@ -30,6 +32,7 @@ void main() {
       album: 'Огонь',
       albumArtist: '[AMATORY]',
       number: 1,
+      trackTotal: 10,
     );
     final other = _track(
       key: 'o',
@@ -38,6 +41,7 @@ void main() {
       album: 'Огонь',
       albumArtist: '[AMATORY]',
       number: 2,
+      trackTotal: 10,
     );
     final own = _track(
       key: 'a',
@@ -46,6 +50,7 @@ void main() {
       album: 'Свой',
       albumArtist: 'ATL',
       number: 1,
+      trackTotal: 10,
     );
     final ownRest = _track(
       key: 'b',
@@ -54,6 +59,7 @@ void main() {
       album: 'Свой',
       albumArtist: 'ATL',
       number: 2,
+      trackTotal: 10,
     );
 
     final groups = groupArtistReleases(
@@ -80,6 +86,7 @@ void main() {
         album: 'Подвох',
         albumArtist: 'aikko, katanacss, INSPACE',
         number: 1,
+        trackTotal: 12,
       ),
       _track(
         key: '8',
@@ -88,6 +95,7 @@ void main() {
         album: 'Подвох',
         albumArtist: 'aikko, katanacss, INSPACE',
         number: 8,
+        trackTotal: 12,
       ),
       _track(
         key: '9',
@@ -96,6 +104,7 @@ void main() {
         album: 'Подвох',
         albumArtist: 'Aikko',
         number: 9,
+        trackTotal: 12,
       ),
     ];
 
@@ -175,6 +184,39 @@ void main() {
     expect(
       releaseAlbumArtists(release),
       ['aikko', 'katanacss', 'INSPACE'],
+    );
+  });
+
+  test('track total tag chooses single, EP, or album', () {
+    expect(releaseKindFromTotal(1), ReleaseKind.single);
+    expect(releaseKindFromTotal(3), ReleaseKind.single);
+    expect(releaseKindFromTotal(4), ReleaseKind.ep);
+    expect(releaseKindFromTotal(8), ReleaseKind.ep);
+    expect(releaseKindFromTotal(9), ReleaseKind.album);
+    expect(
+      releaseKindForTracks([
+        for (var i = 0; i < 10; i++)
+          _track(
+            key: 's$i',
+            title: 'T$i',
+            artist: 'a',
+            album: 'Сингл',
+            trackTotal: 2,
+          ),
+      ]),
+      ReleaseKind.single,
+    );
+    expect(
+      releaseKindForTracks([
+        _track(
+          key: 'e',
+          title: 'T',
+          artist: 'a',
+          album: 'Мини',
+          trackTotal: 5,
+        ),
+      ]),
+      ReleaseKind.ep,
     );
   });
 }

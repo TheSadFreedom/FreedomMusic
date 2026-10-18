@@ -1,7 +1,37 @@
 import '../data/track_key.dart';
 import 'track.dart';
 
-enum ReleaseKind { album, single }
+enum ReleaseKind { album, ep, single }
+
+/// 1–3 single, 4–8 EP, 9 or more album.
+/// [total] is the track-total tag, not how many files are in the library.
+ReleaseKind releaseKindFromTotal(int total) {
+  if (total <= 3) return ReleaseKind.single;
+  if (total <= 8) return ReleaseKind.ep;
+  return ReleaseKind.album;
+}
+
+/// Highest track-total tag on the release. Without that tag, the file count.
+ReleaseKind releaseKindForTracks(List<Track> tracks) {
+  var total = 0;
+  for (final track in tracks) {
+    final value = track.trackTotal;
+    if (value != null && value > total) total = value;
+  }
+  if (total < 1) total = tracks.length;
+  return releaseKindFromTotal(total);
+}
+
+String releaseKindLabel(ReleaseKind kind) {
+  switch (kind) {
+    case ReleaseKind.album:
+      return 'Альбом';
+    case ReleaseKind.ep:
+      return 'EP';
+    case ReleaseKind.single:
+      return 'Сингл';
+  }
+}
 
 class ArtistRelease {
   const ArtistRelease({
@@ -70,11 +100,13 @@ List<String> _artistsOnEveryTrack(List<Track> tracks) {
 class ArtistReleaseGroups {
   const ArtistReleaseGroups({
     required this.albums,
+    required this.eps,
     required this.singles,
     required this.appearances,
   });
 
   final List<ArtistRelease> albums;
+  final List<ArtistRelease> eps;
   final List<ArtistRelease> singles;
 
   /// Releases where the artist appears, but is not the album artist.
@@ -104,9 +136,7 @@ List<ArtistRelease> buildReleases(List<Track> tracks) {
       }
     }
     final isUnknown = entry.key.toLowerCase() == 'unknown';
-    final kind = (list.length <= 1 || isUnknown)
-        ? ReleaseKind.single
-        : ReleaseKind.album;
+    final kind = isUnknown ? ReleaseKind.single : releaseKindForTracks(list);
     releases.add(
       ArtistRelease(
         title: entry.key,
@@ -185,6 +215,7 @@ ArtistReleaseGroups groupArtistReleases({
   appearances.sort(compareReleasesByYearDesc);
   return ArtistReleaseGroups(
     albums: own.where((release) => release.kind == ReleaseKind.album).toList(),
+    eps: own.where((release) => release.kind == ReleaseKind.ep).toList(),
     singles: own.where((release) => release.kind == ReleaseKind.single).toList(),
     appearances: appearances,
   );
@@ -312,7 +343,7 @@ ArtistRelease _releaseFromTracks(List<Track> tracks, {required String? credit}) 
       break;
     }
   }
-  final kind = ordered.length <= 1 ? ReleaseKind.single : ReleaseKind.album;
+  final kind = releaseKindForTracks(ordered);
   return ArtistRelease(
     title: ordered.first.displayAlbum,
     tracks: ordered,
@@ -348,6 +379,25 @@ int releaseListenCount(
   final unit = (totalDurMs * 0.7).round();
   if (unit <= 0) return 0;
   return listenedMs ~/ unit;
+}
+
+String formatTrackCount(int n) {
+  final mod10 = n % 10;
+  final mod100 = n % 100;
+  if (mod10 == 1 && mod100 != 11) return '$n трек';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return '$n трека';
+  }
+  return '$n треков';
+}
+
+/// Bottom line of an album, EP, or single card.
+String releaseCaption(ArtistRelease release, int listenCount) {
+  return [
+    formatTrackCount(release.tracks.length),
+    if (release.year != null && release.year! > 0) '${release.year}',
+    formatListenCount(listenCount),
+  ].join(' · ');
 }
 
 String formatListenCount(int n) {

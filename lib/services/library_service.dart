@@ -944,7 +944,6 @@ class LibraryService extends ChangeNotifier {
     final albums = <_IxAlbum>[];
     for (final entry in albumGroups.entries) {
       final list = entry.value;
-      if (list.length <= 1) continue;
       list.sort((a, b) {
         final byNumber = (a.trackNumber ?? 9999).compareTo(b.trackNumber ?? 9999);
         if (byNumber != 0) return byNumber;
@@ -972,7 +971,7 @@ class LibraryService extends ChangeNotifier {
             release: ArtistRelease(
               title: title,
               tracks: list,
-              kind: ReleaseKind.album,
+              kind: releaseKindForTracks(list),
               year: year,
               coverPath: cover,
             ),
