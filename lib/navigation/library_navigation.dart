@@ -109,7 +109,9 @@ Future<void> openArtistPage(
   bool producer = false,
 }) async {
   final library = context.read<LibraryService>();
-  final cardName = producer ? artistName.trim() : library.artistCardName(artistName);
+  final cardName = producer
+      ? library.producerCardName(artistName)
+      : library.artistCardName(artistName);
   final byArtist =
       producer ? library.tracksByProducer() : library.tracksByArtist();
   final tracks = byArtist[cardName] ??

@@ -97,8 +97,14 @@ class LibraryService extends ChangeNotifier {
   /// normalizeTag(alias) → artist-card display name.
   Map<String, String> _aliasToCard = {};
 
-  /// normalizeTag(card) → other names that open the same card.
+  /// normalizeTag(card) → other names that open the same artist card.
   Map<String, List<String>> _aliasLabelsByCard = {};
+
+  /// normalizeTag(alias) → producer-card display name.
+  Map<String, String> _producerAliasToCard = {};
+
+  /// normalizeTag(card) → other names that open the same producer card.
+  Map<String, List<String>> _producerAliasLabelsByCard = {};
   _CatalogIndex? _catalogIndex;
   String? _catalogQuery;
   CatalogSearch? _catalogHit;
@@ -179,7 +185,17 @@ class LibraryService extends ChangeNotifier {
   }
 
   Future<void> _loadArtistAliases() async {
-    final rows = await _db.getArtistAliases();
+    final artist = _aliasIndex(await _db.getArtistAliases());
+    _aliasToCard = artist.toCard;
+    _aliasLabelsByCard = artist.labels;
+    final producer = _aliasIndex(await _db.getProducerAliases());
+    _producerAliasToCard = producer.toCard;
+    _producerAliasLabelsByCard = producer.labels;
+  }
+
+  ({Map<String, String> toCard, Map<String, List<String>> labels}) _aliasIndex(
+    List<ArtistAlias> rows,
+  ) {
     final toCard = <String, String>{};
     final labels = <String, List<String>>{};
     for (final row in rows) {
@@ -194,26 +210,47 @@ class LibraryService extends ChangeNotifier {
         bucket.add(from);
       }
     }
-    _aliasToCard = toCard;
-    _aliasLabelsByCard = labels;
+    return (toCard: toCard, labels: labels);
+  }
+
+  String _cardName(String name, Map<String, String> toCard) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return trimmed;
+    return toCard[normalizeTag(trimmed)] ?? trimmed;
   }
 
   /// Name shown on the artist card. Track tags are not rewritten.
-  String artistCardName(String artistName) {
-    final trimmed = artistName.trim();
-    if (trimmed.isEmpty) return trimmed;
-    return _aliasToCard[normalizeTag(trimmed)] ?? trimmed;
-  }
+  String artistCardName(String artistName) => _cardName(artistName, _aliasToCard);
+
+  /// Name shown on the producer card. Track tags are not rewritten.
+  String producerCardName(String producerName) =>
+      _cardName(producerName, _producerAliasToCard);
 
   List<String> aliasLabelsForCard(String cardName) {
     return _aliasLabelsByCard[normalizeTag(cardName)] ?? const [];
   }
 
+  List<String> producerAliasLabelsForCard(String cardName) {
+    return _producerAliasLabelsByCard[normalizeTag(cardName)] ?? const [];
+  }
+
   bool artistCardMatchesQuery(String cardName, String query) {
+    return _cardMatchesQuery(cardName, query, aliasLabelsForCard(cardName));
+  }
+
+  bool producerCardMatchesQuery(String cardName, String query) {
+    return _cardMatchesQuery(
+      cardName,
+      query,
+      producerAliasLabelsForCard(cardName),
+    );
+  }
+
+  bool _cardMatchesQuery(String cardName, String query, List<String> aliases) {
     final q = query.trim().toLowerCase();
     if (q.isEmpty) return true;
     if (cardName.toLowerCase().contains(q)) return true;
-    for (final alias in aliasLabelsForCard(cardName)) {
+    for (final alias in aliases) {
       if (alias.toLowerCase().contains(q)) return true;
     }
     return false;
@@ -236,6 +273,15 @@ class LibraryService extends ChangeNotifier {
       extra.write(' ');
       extra.write(card.toLowerCase());
       for (final alias in aliasLabelsForCard(card)) {
+        extra.write(' ');
+        extra.write(alias.toLowerCase());
+      }
+    }
+    for (final name in producerNames(track.producer)) {
+      final card = producerCardName(name);
+      extra.write(' ');
+      extra.write(card.toLowerCase());
+      for (final alias in producerAliasLabelsForCard(card)) {
         extra.write(' ');
         extra.write(alias.toLowerCase());
       }
@@ -897,7 +943,7 @@ class LibraryService extends ChangeNotifier {
 
     for (final t in _tracks) {
       for (final name in producerNames(t.producer)) {
-        final card = artistCardName(name);
+        final card = producerCardName(name);
         final lower = card.toLowerCase();
         final label = displayName.putIfAbsent(lower, () => card);
         final list = map.putIfAbsent(label, () => []);
@@ -1021,7 +1067,12 @@ class LibraryService extends ChangeNotifier {
         ),
       );
       _tallyPeople(track.artists, artistCounts, artistLabels);
-      _tallyPeople(producerNames(track.producer), producerCounts, producerLabels);
+      _tallyPeople(
+        producerNames(track.producer),
+        producerCounts,
+        producerLabels,
+        cardOf: producerCardName,
+      );
 
       final album = track.displayAlbum.trim();
       if (album.isEmpty || album.toLowerCase() == 'unknown') continue;
@@ -1092,7 +1143,11 @@ class LibraryService extends ChangeNotifier {
     final built = _CatalogIndex(
       tracks: tracks,
       artists: _indexedPeople(artistCounts, artistLabels),
-      producers: _indexedPeople(producerCounts, producerLabels),
+      producers: _indexedPeople(
+        producerCounts,
+        producerLabels,
+        producer: true,
+      ),
       albums: albums,
       playlists: playlists,
     );
@@ -1103,11 +1158,13 @@ class LibraryService extends ChangeNotifier {
   void _tallyPeople(
     List<String> names,
     Map<String, int> counts,
-    Map<String, String> labels,
-  ) {
+    Map<String, String> labels, {
+    String Function(String name)? cardOf,
+  }) {
+    final resolve = cardOf ?? artistCardName;
     final seen = <String>{};
     for (final rawName in names) {
-      final card = artistCardName(rawName);
+      final card = resolve(rawName);
       final key = card.toLowerCase();
       if (key.isEmpty || key == 'unknown' || !seen.add(key)) continue;
       counts[key] = (counts[key] ?? 0) + 1;
@@ -1117,22 +1174,26 @@ class LibraryService extends ChangeNotifier {
 
   List<_IxPerson> _indexedPeople(
     Map<String, int> counts,
-    Map<String, String> labels,
-  ) {
+    Map<String, String> labels, {
+    bool producer = false,
+  }) {
     final people = [
       for (final entry in counts.entries)
         _IxPerson(
           labels[entry.key] ?? entry.key,
-          _personHay(labels[entry.key] ?? entry.key),
+          _personHay(labels[entry.key] ?? entry.key, producer: producer),
           entry.value,
         ),
     ]..sort((a, b) => a.hay.compareTo(b.hay));
     return people;
   }
 
-  String _personHay(String card) {
+  String _personHay(String card, {bool producer = false}) {
     final buf = StringBuffer(card.toLowerCase());
-    for (final alias in aliasLabelsForCard(card)) {
+    final aliases = producer
+        ? producerAliasLabelsForCard(card)
+        : aliasLabelsForCard(card);
+    for (final alias in aliases) {
       buf.write(' ');
       buf.write(alias.toLowerCase());
     }
@@ -1178,27 +1239,31 @@ class LibraryService extends ChangeNotifier {
     }
 
     final seen = <String>{};
-    void addName(String raw) {
-      final card = artistCardName(raw);
+    void addName(
+      String raw,
+      String Function(String) cardOf,
+      List<String> Function(String) aliasesOf,
+    ) {
+      final card = cardOf(raw);
       final key = card.toLowerCase();
       if (key.isEmpty || key == 'unknown' || !seen.add(key)) return;
       add(card);
-      for (final alias in aliasLabelsForCard(card)) {
+      for (final alias in aliasesOf(card)) {
         add(alias);
       }
     }
 
     for (final name in track.artists) {
-      addName(name);
+      addName(name, artistCardName, aliasLabelsForCard);
     }
     final albumArtist = track.albumArtist;
     if (albumArtist != null && albumArtist.trim().isNotEmpty) {
       for (final name in splitArtists(albumArtist)) {
-        addName(name);
+        addName(name, artistCardName, aliasLabelsForCard);
       }
     }
     for (final name in producerNames(track.producer)) {
-      addName(name);
+      addName(name, producerCardName, producerAliasLabelsForCard);
     }
     return buf.toString().toLowerCase();
   }
@@ -1408,19 +1473,39 @@ class LibraryService extends ChangeNotifier {
     if (a.toLowerCase() == b.toLowerCase()) return;
 
     await _db.upsertArtistAlias(fromDisplay: b, toDisplay: a);
+    await _movePersonPhoto(from: b, into: a);
+    await reload();
+  }
 
-    final fromPhoto = _settings.artistPhotoPath(b);
-    final intoPhoto = _settings.artistPhotoPath(a);
+  /// Merge [from] into [into] on the producer card. MP3 tags stay as written.
+  Future<void> mergeProducers({
+    required String into,
+    required String from,
+  }) async {
+    final a = into.trim();
+    final b = from.trim();
+    if (a.isEmpty || b.isEmpty) return;
+    if (a.toLowerCase() == b.toLowerCase()) return;
+
+    await _db.upsertProducerAlias(fromDisplay: b, toDisplay: a);
+    await _movePersonPhoto(from: b, into: a);
+    await reload();
+  }
+
+  Future<void> _movePersonPhoto({
+    required String from,
+    required String into,
+  }) async {
+    final fromPhoto = _settings.artistPhotoPath(from);
+    final intoPhoto = _settings.artistPhotoPath(into);
     if (intoPhoto == null && fromPhoto != null) {
       await _settings.setArtistPhotoPath(
-        a,
+        into,
         fromPhoto,
-        manual: _settings.isArtistPhotoManual(b),
+        manual: _settings.isArtistPhotoManual(from),
       );
     }
-    await _settings.setArtistPhotoPath(b, null);
-
-    await reload();
+    await _settings.setArtistPhotoPath(from, null);
   }
 
   /// Genius → Deezer portraits for library artists (skips manual picks).

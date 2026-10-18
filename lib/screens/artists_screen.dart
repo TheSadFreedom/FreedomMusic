@@ -119,7 +119,11 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
     final q = _query.trim();
     if (q.isNotEmpty) {
       ranked = ranked
-          .where((r) => library.artistCardMatchesQuery(r.name, q))
+          .where(
+            (r) => widget.producers
+                ? library.producerCardMatchesQuery(r.name, q)
+                : library.artistCardMatchesQuery(r.name, q),
+          )
           .toList();
     }
 

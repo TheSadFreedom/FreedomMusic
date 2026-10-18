@@ -19,7 +19,7 @@ class AppDatabase {
     final db = await databaseFactory.openDatabase(
       paths.databasePath,
       options: OpenDatabaseOptions(
-        version: 9,
+        version: 10,
         onCreate: (db, version) async {
           await db.execute('''
             CREATE TABLE tracks (
@@ -71,6 +71,13 @@ class AppDatabase {
           ''');
           await db.execute('''
             CREATE TABLE artist_aliases (
+              from_norm TEXT PRIMARY KEY,
+              from_display TEXT NOT NULL,
+              to_display TEXT NOT NULL
+            )
+          ''');
+          await db.execute('''
+            CREATE TABLE producer_aliases (
               from_norm TEXT PRIMARY KEY,
               from_display TEXT NOT NULL,
               to_display TEXT NOT NULL
@@ -171,6 +178,15 @@ class AppDatabase {
           }
           if (oldVersion < 9) {
             await db.execute('ALTER TABLE tracks ADD COLUMN producer TEXT');
+          }
+          if (oldVersion < 10) {
+            await db.execute('''
+              CREATE TABLE producer_aliases (
+                from_norm TEXT PRIMARY KEY,
+                from_display TEXT NOT NULL,
+                to_display TEXT NOT NULL
+              )
+            ''');
           }
         },
       ),
@@ -576,8 +592,13 @@ class AppDatabase {
     };
   }
 
-  Future<List<ArtistAlias>> getArtistAliases() async {
-    final rows = await _db.query('artist_aliases');
+  Future<List<ArtistAlias>> getArtistAliases() => _readAliases('artist_aliases');
+
+  Future<List<ArtistAlias>> getProducerAliases() =>
+      _readAliases('producer_aliases');
+
+  Future<List<ArtistAlias>> _readAliases(String table) async {
+    final rows = await _db.query(table);
     return [
       for (final row in rows)
         ArtistAlias(
@@ -591,6 +612,29 @@ class AppDatabase {
   Future<void> upsertArtistAlias({
     required String fromDisplay,
     required String toDisplay,
+  }) {
+    return _upsertAlias(
+      'artist_aliases',
+      fromDisplay: fromDisplay,
+      toDisplay: toDisplay,
+    );
+  }
+
+  Future<void> upsertProducerAlias({
+    required String fromDisplay,
+    required String toDisplay,
+  }) {
+    return _upsertAlias(
+      'producer_aliases',
+      fromDisplay: fromDisplay,
+      toDisplay: toDisplay,
+    );
+  }
+
+  Future<void> _upsertAlias(
+    String table, {
+    required String fromDisplay,
+    required String toDisplay,
   }) async {
     final fromNorm = normalizeTag(fromDisplay);
     final toNorm = normalizeTag(toDisplay);
@@ -599,7 +643,7 @@ class AppDatabase {
     await _db.transaction((txn) async {
       // Follow chain if target is itself an alias.
       final existingTo = await txn.query(
-        'artist_aliases',
+        table,
         where: 'from_norm = ?',
         whereArgs: [toNorm],
         limit: 1,
@@ -610,13 +654,13 @@ class AppDatabase {
       }
 
       // Retarget aliases that pointed at the absorbed name.
-      final all = await txn.query('artist_aliases');
+      final all = await txn.query(table);
       for (final row in all) {
         final rowFrom = row['from_norm'] as String;
         final rowTo = row['to_display'] as String;
         if (normalizeTag(rowTo) == fromNorm) {
           await txn.update(
-            'artist_aliases',
+            table,
             {'to_display': finalTo},
             where: 'from_norm = ?',
             whereArgs: [rowFrom],
@@ -625,7 +669,7 @@ class AppDatabase {
       }
 
       await txn.insert(
-        'artist_aliases',
+        table,
         {
           'from_norm': fromNorm,
           'from_display': fromDisplay.trim(),

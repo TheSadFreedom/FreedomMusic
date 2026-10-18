@@ -52,7 +52,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
           (t) => widget.byProducer
               ? producerNames(t.producer).any(
                   (name) =>
-                      library.artistCardName(name).toLowerCase() == want,
+                      library.producerCardName(name).toLowerCase() == want,
                 )
               : t.artists.any(
                   (name) =>
@@ -145,10 +145,10 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
     return null;
   }
 
-  Future<void> _mergeArtist(BuildContext context) async {
+  Future<void> _mergePerson(BuildContext context) async {
     final library = context.read<LibraryService>();
-    final others = library
-        .tracksByArtist()
+    final producers = widget.byProducer;
+    final others = (producers ? library.tracksByProducer() : library.tracksByArtist())
         .keys
         .where((n) => n.toLowerCase() != widget.artist.toLowerCase())
         .toList()
@@ -158,7 +158,9 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Нет других артистов для объединения',
+            producers
+                ? 'Нет других продюсеров для объединения'
+                : 'Нет других артистов для объединения',
             style: GoogleFonts.figtree(fontWeight: FontWeight.w600),
           ),
           behavior: SnackBarBehavior.floating,
@@ -178,6 +180,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
       builder: (ctx) => _MergeArtistSheet(
         currentArtist: widget.artist,
         candidates: others,
+        producers: producers,
       ),
     );
     if (selected == null || !context.mounted) return;
@@ -187,7 +190,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppTheme.inkLift,
         title: Text(
-          'Объединить артистов?',
+          producers ? 'Объединить продюсеров?' : 'Объединить артистов?',
           style: GoogleFonts.syne(
             color: AppTheme.paper,
             fontWeight: FontWeight.w700,
@@ -225,10 +228,15 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
     );
     if (confirmed != true || !context.mounted) return;
 
-    await library.mergeArtists(into: widget.artist, from: selected);
+    if (producers) {
+      await library.mergeProducers(into: widget.artist, from: selected);
+    } else {
+      await library.mergeArtists(into: widget.artist, from: selected);
+    }
     if (!context.mounted) return;
 
-    final byArtist = library.tracksByArtist();
+    final byArtist =
+        producers ? library.tracksByProducer() : library.tracksByArtist();
     var tracks = <Track>[];
     for (final e in byArtist.entries) {
       if (e.key.toLowerCase() == widget.artist.toLowerCase()) {
@@ -252,6 +260,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
           playCount: plays,
           chartRank: widget.chartRank,
           trackPlayCounts: counts,
+          byProducer: widget.byProducer,
         ),
       ),
     );
@@ -319,7 +328,10 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
             onShuffle: () => player.playTracks(tracks, shuffle: true),
             onPickPhoto: () => _pickPhoto(context),
             onClearPhoto: () => _clearPhoto(context),
-            onMerge: widget.byProducer ? null : () => _mergeArtist(context),
+            onMerge: () => _mergePerson(context),
+            mergeTooltip: widget.byProducer
+                ? 'Объединить продюсеров'
+                : 'Объединить артистов',
             roleLabel: widget.byProducer ? 'Продюсер' : 'Артист',
           )),
           if (widget.byProducer) ...[
@@ -554,6 +566,7 @@ class _Header extends StatelessWidget {
     required this.onPickPhoto,
     required this.onClearPhoto,
     this.onMerge,
+    this.mergeTooltip = 'Объединить артистов',
     this.roleLabel = 'Артист',
   });
 
@@ -567,6 +580,7 @@ class _Header extends StatelessWidget {
   final VoidCallback onPickPhoto;
   final VoidCallback onClearPhoto;
   final VoidCallback? onMerge;
+  final String mergeTooltip;
   final String roleLabel;
 
   @override
@@ -592,7 +606,7 @@ class _Header extends StatelessWidget {
               const SizedBox(height: 8),
               _PhotoActionButton(
                 icon: const Icon(Icons.merge_type_rounded, size: 18),
-                tooltip: 'Объединить артистов',
+                tooltip: mergeTooltip,
                 onPressed: onMerge!,
               ),
             ],
@@ -1546,10 +1560,12 @@ class _MergeArtistSheet extends StatefulWidget {
   const _MergeArtistSheet({
     required this.currentArtist,
     required this.candidates,
+    required this.producers,
   });
 
   final String currentArtist;
   final List<String> candidates;
+  final bool producers;
 
   @override
   State<_MergeArtistSheet> createState() => _MergeArtistSheetState();
@@ -1588,8 +1604,11 @@ class _MergeArtistSheetState extends State<_MergeArtistSheet> {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: Text(
-                'Выберите артиста, которого нужно добавить на эту карточку. '
-                'Имена в треках не меняются.',
+                widget.producers
+                    ? 'Выберите продюсера, которого нужно добавить на эту карточку. '
+                        'Имена в треках не меняются.'
+                    : 'Выберите артиста, которого нужно добавить на эту карточку. '
+                        'Имена в треках не меняются.',
                 style: GoogleFonts.figtree(
                   color: AppTheme.paperMuted,
                   fontSize: 13,
@@ -1604,7 +1623,8 @@ class _MergeArtistSheetState extends State<_MergeArtistSheet> {
                 onChanged: (v) => setState(() => _query = v),
                 style: GoogleFonts.figtree(color: AppTheme.paper),
                 decoration: InputDecoration(
-                  hintText: 'Поиск артиста',
+                  hintText:
+                      widget.producers ? 'Поиск продюсера' : 'Поиск артиста',
                   hintStyle: GoogleFonts.figtree(color: AppTheme.paperMuted),
                   prefixIcon: Icon(
                     Icons.search_rounded,
