@@ -477,7 +477,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _SectionCard(
                         title: 'Данные',
                         subtitle:
-                            'Плейлисты, фото, обложки, история и чарт. MP3 не входят.',
+                            'Плейлисты, фото, история, объединения и выбранные обложки релизов. MP3 не входят.',
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
@@ -487,7 +487,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   icon: const UploadGlyph(),
                                   title: 'Экспорт',
                                   description:
-                                      'Архив плейлистов, фото и истории.',
+                                      'Архив плейлистов, фото, истории, объединений и обложек релизов.',
                                   onPressed: busy
                                       ? null
                                       : () => _export(library),

@@ -17,7 +17,8 @@ class BackupResult {
 }
 
 /// Export / import app data that is not file metadata:
-/// playlists, play history, artist photos, playlist covers, chart deltas, settings.
+/// playlists, play history, artist photos, playlist covers, chart deltas,
+/// artist and producer merges, chosen release covers, settings.
 class BackupService {
   BackupService({
     required AppPaths paths,
@@ -85,6 +86,9 @@ class BackupService {
     final events = await _db.getAllPlayEvents();
     final trashed = await _db.getTrashedTrackEntries();
     final added = await _db.getTrackAddedAtEntries();
+    final artistAliases = await _db.getArtistAliases();
+    final producerAliases = await _db.getProducerAliases();
+    final releaseCovers = _settings.exportReleaseCovers();
     final manifest = <String, Object?>{
       'formatVersion': formatVersion,
       'app': 'Freedom Music',
@@ -92,6 +96,13 @@ class BackupService {
       'settings': _settings.exportSettingsFlags(),
       'artistPhotos': artistPhotos,
       'chartSnapshots': _settings.exportChartSnapshots(),
+      'artistAliases': [
+        for (final row in artistAliases) _aliasJson(row),
+      ],
+      'producerAliases': [
+        for (final row in producerAliases) _aliasJson(row),
+      ],
+      'releaseCovers': releaseCovers,
       'playlists': playlistPayload,
       'trashedTracks': [
         for (final e in trashed)
@@ -126,10 +137,12 @@ class BackupService {
     final plCount = playlists.length;
     final evCount = events.length;
     final photoCount = artistPhotos.length;
+    final mergeCount = artistAliases.length + producerAliases.length;
     return BackupResult(
       path: destPath,
       message: 'Экспортировано: $plCount плейлистов, $evCount прослушиваний, '
-          '$photoCount фото артистов.',
+          '$photoCount фото, $mergeCount объединений, '
+          '${releaseCovers.length} обложек релизов.',
     );
   }
 
@@ -266,6 +279,14 @@ class BackupService {
     }
     await _db.applyAddedAtFlags(addedEntries);
 
+    if (json.containsKey('artistAliases') ||
+        json.containsKey('producerAliases')) {
+      await _db.replaceAliases(
+        artists: _readAliases(json['artistAliases']),
+        producers: _readAliases(json['producerAliases']),
+      );
+    }
+
     await _db.ensureTrashPlaylist();
     await _db.ensureNewPlaylist();
     await _db.ensureIncompletePlaylist();
@@ -297,16 +318,66 @@ class BackupService {
       await _settings.replaceChartSnapshots(const {});
     }
 
+    final releaseCovers = _readReleaseCovers(json['releaseCovers']);
+    if (json.containsKey('releaseCovers')) {
+      await _settings.replaceReleaseCovers(releaseCovers);
+    }
+    final mergeCount = _readAliases(json['artistAliases']).length +
+        _readAliases(json['producerAliases']).length;
+
     return BackupResult(
       message: 'Импортировано: ${playlistRows.length} плейлистов, '
           '${playEvents.length} прослушиваний, '
-          '${artistMap.length} фото артистов.',
+          '${artistMap.length} фото, $mergeCount объединений, '
+          '${releaseCovers.length} обложек релизов.',
     );
   }
 
   Future<BackupResult> importFromFile(String path) async {
     final bytes = await File(path).readAsBytes();
     return importFromBytes(Uint8List.fromList(bytes));
+  }
+
+  static Map<String, Object> _aliasJson(ArtistAlias row) {
+    return {
+      'fromNorm': row.fromNorm,
+      'fromDisplay': row.fromDisplay,
+      'toDisplay': row.toDisplay,
+    };
+  }
+
+  static List<ArtistAlias> _readAliases(Object? raw) {
+    if (raw is! List) return const [];
+    final rows = <ArtistAlias>[];
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final fromNorm = item['fromNorm']?.toString().trim() ?? '';
+      final fromDisplay = item['fromDisplay']?.toString().trim() ?? '';
+      final toDisplay = item['toDisplay']?.toString().trim() ?? '';
+      if (fromNorm.isEmpty || fromDisplay.isEmpty || toDisplay.isEmpty) {
+        continue;
+      }
+      rows.add(
+        ArtistAlias(
+          fromNorm: fromNorm,
+          fromDisplay: fromDisplay,
+          toDisplay: toDisplay,
+        ),
+      );
+    }
+    return rows;
+  }
+
+  static Map<String, String> _readReleaseCovers(Object? raw) {
+    if (raw is! Map) return const {};
+    final covers = <String, String>{};
+    for (final entry in raw.entries) {
+      final releaseKey = entry.key.toString();
+      final trackKey = entry.value?.toString() ?? '';
+      if (releaseKey.isEmpty || trackKey.isEmpty) continue;
+      covers[releaseKey] = trackKey;
+    }
+    return covers;
   }
 
   static String _safeName(String input) {

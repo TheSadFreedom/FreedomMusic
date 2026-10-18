@@ -165,6 +165,31 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Release key → track whose cover is shown for that album, EP, or single.
+  Map<String, String> exportReleaseCovers() {
+    final out = <String, String>{};
+    for (final key in _prefs.getKeys()) {
+      if (!key.startsWith(_releaseCoverPrefix)) continue;
+      final trackKey = _prefs.getString(key);
+      if (trackKey == null || trackKey.isEmpty) continue;
+      out[key.substring(_releaseCoverPrefix.length)] = trackKey;
+    }
+    return out;
+  }
+
+  Future<void> replaceReleaseCovers(Map<String, String> covers) async {
+    for (final key in _prefs.getKeys().toList()) {
+      if (key.startsWith(_releaseCoverPrefix)) {
+        await _prefs.remove(key);
+      }
+    }
+    for (final entry in covers.entries) {
+      if (entry.key.isEmpty || entry.value.isEmpty) continue;
+      await _prefs.setString('$_releaseCoverPrefix${entry.key}', entry.value);
+    }
+    notifyListeners();
+  }
+
   /// Previous chart ranks: `trackKey -> 1-based rank`.
   Map<String, int> chartSnapshot(String periodKey) {
     final raw = _prefs.getStringList('chart_snap_$periodKey') ?? const [];

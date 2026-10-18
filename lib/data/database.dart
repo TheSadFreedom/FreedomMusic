@@ -1399,6 +1399,31 @@ class AppDatabase {
     });
   }
 
+  /// Replace artist and producer card merges. Track tags stay unchanged.
+  Future<void> replaceAliases({
+    required List<ArtistAlias> artists,
+    required List<ArtistAlias> producers,
+  }) async {
+    await _db.transaction((txn) async {
+      await txn.delete('artist_aliases');
+      await txn.delete('producer_aliases');
+      for (final row in artists) {
+        await txn.insert('artist_aliases', {
+          'from_norm': row.fromNorm,
+          'from_display': row.fromDisplay,
+          'to_display': row.toDisplay,
+        });
+      }
+      for (final row in producers) {
+        await txn.insert('producer_aliases', {
+          'from_norm': row.fromNorm,
+          'from_display': row.fromDisplay,
+          'to_display': row.toDisplay,
+        });
+      }
+    });
+  }
+
   Future<void> _touchPlaylist(int playlistId) async {
     await _db.update(
       'playlists',
