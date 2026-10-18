@@ -195,6 +195,28 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
     }
   }
 
+  Future<void> _copyName() async {
+    final artist = _artist.text.trim();
+    final title = _title.text.trim();
+    final text = [
+      if (artist.isNotEmpty) artist,
+      if (title.isNotEmpty) title,
+    ].join(' - ');
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Скопировано',
+          style: GoogleFonts.figtree(fontWeight: FontWeight.w600),
+        ),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: AppTheme.inkLift,
+        duration: const Duration(seconds: 1),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final path = widget.track.primaryPath ?? '—';
@@ -208,10 +230,29 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
           style: GoogleFonts.syne(fontWeight: FontWeight.w700),
         ),
         actions: [
+          TextButton(
+            onPressed: _copyName,
+            style: TextButton.styleFrom(
+              enabledMouseCursor: SystemMouseCursors.click,
+              disabledMouseCursor: SystemMouseCursors.basic,
+            ),
+            child: Text(
+              'Копировать',
+              style: GoogleFonts.figtree(
+                color: AppTheme.paper,
+                fontWeight: FontWeight.w700,
+                fontSize: 15,
+              ),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: TextButton(
               onPressed: _saving ? null : _save,
+              style: TextButton.styleFrom(
+                enabledMouseCursor: SystemMouseCursors.click,
+                disabledMouseCursor: SystemMouseCursors.basic,
+              ),
               child: _saving
                   ? const SizedBox(
                       width: 18,

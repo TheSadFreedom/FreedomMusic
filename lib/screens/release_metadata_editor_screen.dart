@@ -216,6 +216,28 @@ class _ReleaseMetadataEditorScreenState
     }
   }
 
+  Future<void> _copyName() async {
+    final artist = _albumArtist.text.trim();
+    final album = _album.text.trim();
+    final text = [
+      if (artist.isNotEmpty) artist,
+      if (album.isNotEmpty) album,
+    ].join(' - ');
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Скопировано',
+          style: GoogleFonts.figtree(fontWeight: FontWeight.w600),
+        ),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: AppTheme.inkLift,
+        duration: const Duration(seconds: 1),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final release = widget.release;
@@ -229,6 +251,21 @@ class _ReleaseMetadataEditorScreenState
           style: GoogleFonts.syne(fontWeight: FontWeight.w700),
         ),
         actions: [
+          TextButton(
+            onPressed: _copyName,
+            style: TextButton.styleFrom(
+              enabledMouseCursor: SystemMouseCursors.click,
+              disabledMouseCursor: SystemMouseCursors.basic,
+            ),
+            child: Text(
+              'Копировать',
+              style: GoogleFonts.figtree(
+                color: AppTheme.paper,
+                fontWeight: FontWeight.w700,
+                fontSize: 15,
+              ),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: TextButton(
