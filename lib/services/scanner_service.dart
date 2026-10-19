@@ -108,14 +108,16 @@ class ScannerService {
       final prev = existingMtimes[filePath];
 
       processed++;
-      onProgress?.call(ScanProgress(
-        processed: processed,
-        total: files.length,
-        added: added,
-        updated: updated,
-        skipped: skipped,
-        currentFile: p.basename(filePath),
-      ));
+      onProgress?.call(
+        ScanProgress(
+          processed: processed,
+          total: files.length,
+          added: added,
+          updated: updated,
+          skipped: skipped,
+          currentFile: p.basename(filePath),
+        ),
+      );
 
       // New-only walk leaves files that are already in the library alone.
       if (!force && newOnly && prev != null) {
@@ -151,8 +153,10 @@ class ScannerService {
     // Never prune missing files if cancelled — scan was incomplete.
     var actuallyRemoved = 0;
     if (!cancelled && !(newOnly && !force)) {
-      actuallyRemoved =
-          existingMtimes.keys.toSet().difference(seenPaths).length;
+      actuallyRemoved = existingMtimes.keys
+          .toSet()
+          .difference(seenPaths)
+          .length;
       await _db.removeMissingFiles(seenPaths);
     }
 
@@ -177,10 +181,7 @@ class ScannerService {
     var changed = 0;
 
     for (final track in tracks) {
-      final names = [
-        ...track.artists,
-        ...splitArtists(track.albumArtist),
-      ];
+      final names = [...track.artists, ...splitArtists(track.albumArtist)];
       if (!names.any((n) => targets.contains(normalizeTag(n)))) continue;
       final path = track.primaryPath;
       if (path == null || !File(path).existsSync()) continue;
@@ -217,21 +218,22 @@ class ScannerService {
       final rawAlbum = meta.album?.trim();
       final album = isBlankMeta(rawAlbum) ? 'Unknown' : rawAlbum!;
       final genreRaw = meta.genres.isNotEmpty
-          ? meta.genres.map((g) => g.trim()).where((g) => !isBlankMeta(g)).join(', ')
+          ? meta.genres
+                .map((g) => g.trim())
+                .where((g) => !isBlankMeta(g))
+                .join(', ')
           : '';
       final genre = genreRaw.isEmpty ? 'Unknown' : genreRaw;
       final albumArtist = storedPeople(meta.albumArtist);
       final producer = readFileProducer(file.path);
+      final note = readFileNote(file.path);
       final lyrics = meta.lyrics?.trim();
       final durationMs = meta.duration?.inMilliseconds;
       final year = meta.year?.year;
       final trackNumber = meta.trackNumber;
       final discNumber = meta.discNumber;
 
-      final trackKey = buildTrackKey(
-        artist: artist,
-        title: title,
-      );
+      final trackKey = buildTrackKey(artist: artist, title: title);
 
       String? coverPath;
       final pictures = meta.pictures;
@@ -247,6 +249,7 @@ class ScannerService {
         genre: genre.isEmpty ? 'Unknown' : genre,
         albumArtist: albumArtist,
         producer: producer,
+        note: note,
         lyrics: (lyrics == null || lyrics.isEmpty) ? null : lyrics,
         year: year,
         trackNumber: trackNumber,
@@ -258,10 +261,7 @@ class ScannerService {
     } catch (_) {
       // Fallback: filename-only track so library still shows something.
       final title = p.basenameWithoutExtension(file.path);
-      final trackKey = buildTrackKey(
-        artist: 'Unknown',
-        title: title,
-      );
+      final trackKey = buildTrackKey(artist: 'Unknown', title: title);
       return Track(
         trackKey: trackKey,
         title: title,
@@ -300,7 +300,13 @@ class ScannerService {
 
   bool _isAudio(String path) {
     final ext = p.extension(path).toLowerCase();
-    return const {'.mp3', '.flac', '.m4a', '.aac', '.wav', '.ogg'}
-        .contains(ext);
+    return const {
+      '.mp3',
+      '.flac',
+      '.m4a',
+      '.aac',
+      '.wav',
+      '.ogg',
+    }.contains(ext);
   }
 }

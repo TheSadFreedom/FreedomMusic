@@ -16,12 +16,13 @@ class TrackMetaGaps {
   final bool genre;
   final bool lyrics;
 
-  /// Genre stays on its own list and does not block «Метаданные готовы».
+  /// Genre and the note tag stay optional and do not block «Метаданные готовы».
   bool get ready => !core && !producer && !lyrics;
 }
 
 TrackMetaGaps trackMetaGaps(Track track) {
-  final core = _coverMissing(track.coverPath) ||
+  final core =
+      _coverMissing(track.coverPath) ||
       isBlankMeta(track.title) ||
       isBlankMeta(track.artist) ||
       _albumMissing(track.album) ||

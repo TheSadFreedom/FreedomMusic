@@ -62,8 +62,7 @@ class _AppPlayerLayerState extends State<AppPlayerLayer> {
 
   Widget _buildStack(BuildContext context) {
     final compact = _compact(context);
-    final desktop =
-        Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+    final desktop = Platform.isWindows || Platform.isLinux || Platform.isMacOS;
     final playerHeight = compact ? 0.0 : _dock.height;
     final lyricsTop = desktop
         ? kAppTitleBarHeight
@@ -83,6 +82,7 @@ class _AppPlayerLayerState extends State<AppPlayerLayer> {
             bottom: playerHeight,
             child: LyricsStage(
               title: _lyrics.title,
+              note: _lyrics.note,
               raw: _lyrics.raw,
               fetching: _lyrics.fetching,
               notFound: _lyrics.notFound,
@@ -94,10 +94,7 @@ class _AppPlayerLayerState extends State<AppPlayerLayer> {
             left: 0,
             right: 0,
             bottom: 0,
-            child: _PlayerDockReporter(
-              dock: _dock,
-              child: const MiniPlayer(),
-            ),
+            child: _PlayerDockReporter(dock: _dock, child: const MiniPlayer()),
           ),
       ],
     );

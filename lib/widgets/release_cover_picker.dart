@@ -10,6 +10,7 @@ import '../models/track.dart';
 import '../services/library_service.dart';
 import '../theme/app_theme.dart';
 import 'track_overflow_menu.dart';
+import 'track_title_line.dart';
 
 /// Right-click action. Hidden when the release has fewer than two covers.
 TrackMenuAction? releaseCoverMenuAction(
@@ -99,11 +100,11 @@ Future<void> showReleaseCoverPicker(
                     shrinkWrap: true,
                     gridDelegate:
                         const SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: 140,
-                      mainAxisSpacing: 14,
-                      crossAxisSpacing: 14,
-                      childAspectRatio: 0.72,
-                    ),
+                          maxCrossAxisExtent: 140,
+                          mainAxisSpacing: 14,
+                          crossAxisSpacing: 14,
+                          childAspectRatio: 0.72,
+                        ),
                     itemCount: choices.length,
                     itemBuilder: (context, index) {
                       final track = choices[index];
@@ -111,7 +112,10 @@ Future<void> showReleaseCoverPicker(
                         track: track,
                         selected: track.trackKey == selected,
                         onTap: () async {
-                          await library.setReleaseCover(release, track.trackKey);
+                          await library.setReleaseCover(
+                            release,
+                            track.trackKey,
+                          );
                           if (dialogContext.mounted) {
                             Navigator.of(dialogContext).pop();
                           }
@@ -179,10 +183,10 @@ class _CoverChoice extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          Text(
-            title,
+          TrackTitleLine(
+            title: title,
+            note: track.displayNote,
             maxLines: 2,
-            overflow: TextOverflow.ellipsis,
             style: GoogleFonts.figtree(
               color: selected ? AppTheme.lime : AppTheme.paper,
               fontSize: 12,

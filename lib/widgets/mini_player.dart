@@ -17,6 +17,7 @@ import '../utils/duration_format.dart';
 import '../utils/lyrics_format.dart';
 import 'lyrics_view.dart';
 import 'track_overflow_menu.dart';
+import 'track_title_line.dart';
 import '../utils/trash_actions.dart';
 
 const _kYellow = Color(0xFFFFDB4D);
@@ -71,6 +72,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
   void _publishLyrics({
     required bool visible,
     String title = '',
+    String? note,
     String? raw,
     bool fetching = false,
     bool notFound = false,
@@ -82,6 +84,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
     };
     if (presentation.visible == visible &&
         presentation.title == title &&
+        presentation.note == note &&
         presentation.raw == raw &&
         presentation.fetching == fetching &&
         presentation.notFound == notFound) {
@@ -92,6 +95,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
       presentation.update(
         visible: visible,
         title: title,
+        note: note,
         raw: raw,
         fetching: fetching,
         notFound: notFound,
@@ -119,8 +123,8 @@ class _MiniPlayerState extends State<MiniPlayer> {
       return const SizedBox.shrink();
     }
 
-    final progress = player.duration == null ||
-            player.duration!.inMilliseconds == 0
+    final progress =
+        player.duration == null || player.duration!.inMilliseconds == 0
         ? 0.0
         : player.position.inMilliseconds / player.duration!.inMilliseconds;
     final libTrack = library.trackByKey(track.trackKey);
@@ -133,6 +137,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
     _publishLyrics(
       visible: _showLyrics,
       title: track.displayTitle,
+      note: track.displayNote,
       raw: lyricsSource.lyrics,
       fetching: lyricsFetching,
       notFound: lyricsFailed && lyricsText.isEmpty,
@@ -216,8 +221,8 @@ class _MiniPlayerState extends State<MiniPlayer> {
                       tooltip: lyricsText.isNotEmpty
                           ? 'Текст'
                           : lyricsFetching
-                              ? 'Ищем текст…'
-                              : 'Текст',
+                          ? 'Ищем текст…'
+                          : 'Текст',
                       onPressed: toggleLyrics,
                       size: 24,
                     ),
@@ -257,10 +262,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                   child: _TrackInfo(track: track),
                 ),
                 if (wide) ...[
-                  Expanded(
-                    flex: 4,
-                    child: _CenterControls(player: player),
-                  ),
+                  Expanded(flex: 4, child: _CenterControls(player: player)),
                   Expanded(
                     flex: 3,
                     child: _RightControls(
@@ -272,8 +274,8 @@ class _MiniPlayerState extends State<MiniPlayer> {
                       lyricsTooltip: lyricsText.isNotEmpty
                           ? 'Текст'
                           : lyricsFetching
-                              ? 'Ищем текст…'
-                              : 'Текст',
+                          ? 'Ищем текст…'
+                          : 'Текст',
                     ),
                   ),
                 ] else ...[
@@ -285,8 +287,8 @@ class _MiniPlayerState extends State<MiniPlayer> {
                     tooltip: lyricsText.isNotEmpty
                         ? 'Текст'
                         : lyricsFetching
-                            ? 'Ищем текст…'
-                            : 'Текст',
+                        ? 'Ищем текст…'
+                        : 'Текст',
                     onPressed: toggleLyrics,
                   ),
                   _IconBtn(
@@ -307,44 +309,44 @@ class _MiniPlayerState extends State<MiniPlayer> {
     }
 
     return Material(
-          color: Colors.transparent,
-          child: SafeArea(
-            top: false,
-            bottom: false,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    phone ? 8 : 10,
-                    0,
-                    phone ? 8 : 10,
-                    8,
+      color: Colors.transparent,
+      child: SafeArea(
+        top: false,
+        bottom: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                phone ? 8 : 10,
+                0,
+                phone ? 8 : 10,
+                8,
+              ),
+              // Clip.none so the progress thumb can sit on the top edge
+              // without being cut by the rounded bar.
+              child: Container(
+                clipBehavior: Clip.none,
+                decoration: BoxDecoration(
+                  color: _kBar,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.06),
                   ),
-                  // Clip.none so the progress thumb can sit on the top edge
-                  // without being cut by the rounded bar.
-                  child: Container(
-                    clipBehavior: Clip.none,
-                    decoration: BoxDecoration(
-                      color: _kBar,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.06),
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.45),
-                          blurRadius: 24,
-                          offset: const Offset(0, 8),
-                        ),
-                      ],
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.45),
+                      blurRadius: 24,
+                      offset: const Offset(0, 8),
                     ),
-                    child: controlsBody,
-                  ),
+                  ],
                 ),
-              ],
+                child: controlsBody,
+              ),
             ),
-          ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -470,11 +472,7 @@ class _ProgressStripState extends State<_ProgressStrip> {
                     top: -28,
                     child: _TimeChip(posLabel),
                   ),
-                  Positioned(
-                    right: 8,
-                    top: -28,
-                    child: _TimeChip(durLabel),
-                  ),
+                  Positioned(right: 8, top: -28, child: _TimeChip(durLabel)),
                 ],
                 Positioned.fill(
                   child: ClipRRect(
@@ -524,10 +522,7 @@ class _ProgressStripState extends State<_ProgressStrip> {
 }
 
 class _ProgressTrackPainter extends CustomPainter {
-  _ProgressTrackPainter({
-    required this.progress,
-    required this.trackHeight,
-  });
+  _ProgressTrackPainter({required this.progress, required this.trackHeight});
 
   final double progress;
   final double trackHeight;
@@ -614,60 +609,53 @@ class _TrackInfo extends StatelessWidget {
     return TrackContextMenu(
       actions: standardTrackActions(context, track, copyTitle: true),
       child: Row(
-      children: [
-        _Cover(path: track.coverPath),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Flexible(
-                    child: MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
+        children: [
+          _Cover(path: track.coverPath),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: TrackTitleLine(
+                        title: track.displayTitle,
+                        note: track.displayNote,
                         onTap: () => openAlbumForTrack(context, track),
-                        child: Text(
-                          track.displayTitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.figtree(
-                            color: AppTheme.paper,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
-                            height: 1.15,
-                          ),
+                        style: GoogleFonts.figtree(
+                          color: AppTheme.paper,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                          height: 1.15,
                         ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 2),
-              MouseRegion(
-                cursor: SystemMouseCursors.click,
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => openArtistFromTrack(context, track),
-                  child: Text(
-                    track.displayArtist,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.figtree(
-                      color: _kIconDim,
-                      fontSize: 12,
-                      height: 1.15,
+                  ],
+                ),
+                const SizedBox(height: 2),
+                MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => openArtistFromTrack(context, track),
+                    child: Text(
+                      track.displayArtist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.figtree(
+                        color: _kIconDim,
+                        fontSize: 12,
+                        height: 1.15,
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
       ),
     );
   }
@@ -760,10 +748,7 @@ class _CenterControls extends StatelessWidget {
           onPressed: player.previous,
         ),
         const SizedBox(width: 4),
-        _PlayButton(
-          playing: player.playing,
-          onPressed: player.togglePlayPause,
-        ),
+        _PlayButton(playing: player.playing, onPressed: player.togglePlayPause),
         const SizedBox(width: 4),
         _IconBtn(
           icon: Icons.skip_next_rounded,
@@ -937,8 +922,8 @@ class _IconBtn extends StatelessWidget {
     final color = !enabled
         ? _kIconDim.withValues(alpha: 0.35)
         : active
-            ? _kYellow
-            : _kIcon;
+        ? _kYellow
+        : _kIcon;
     return IconButton(
       tooltip: tooltip.isEmpty ? null : tooltip,
       onPressed: enabled ? onPressed : null,
@@ -1032,10 +1017,7 @@ class _RepeatMarkPainter extends CustomPainter {
 }
 
 class _YandexVolumeCapsule extends StatelessWidget {
-  const _YandexVolumeCapsule({
-    required this.volume,
-    required this.onChanged,
-  });
+  const _YandexVolumeCapsule({required this.volume, required this.onChanged});
 
   final double volume;
   final ValueChanged<double> onChanged;
@@ -1094,8 +1076,9 @@ class _YandexVolumeCapsule extends StatelessWidget {
                   onVerticalDragUpdate: (d) =>
                       _setFromLocalY(d.localPosition.dy, constraints.maxHeight),
                   child: CustomPaint(
-                    painter:
-                        _VolumeCapsulePainter(volume: volume.clamp(0.0, 1.0)),
+                    painter: _VolumeCapsulePainter(
+                      volume: volume.clamp(0.0, 1.0),
+                    ),
                     size: Size(constraints.maxWidth, constraints.maxHeight),
                   ),
                 ),
@@ -1126,11 +1109,7 @@ class _VolumeCapsulePainter extends CustomPainter {
       ..color = const Color(0xFF555555)
       ..strokeWidth = 3
       ..strokeCap = StrokeCap.round;
-    canvas.drawLine(
-      Offset(cx, trackTop),
-      Offset(cx, trackBottom),
-      railPaint,
-    );
+    canvas.drawLine(Offset(cx, trackTop), Offset(cx, trackBottom), railPaint);
 
     final fillTop = trackBottom - trackH * volume;
     if (volume > 0.001) {
@@ -1138,19 +1117,11 @@ class _VolumeCapsulePainter extends CustomPainter {
         ..color = _kYellow
         ..strokeWidth = 6
         ..strokeCap = StrokeCap.round;
-      canvas.drawLine(
-        Offset(cx, fillTop),
-        Offset(cx, trackBottom),
-        fillPaint,
-      );
+      canvas.drawLine(Offset(cx, fillTop), Offset(cx, trackBottom), fillPaint);
     }
 
     final thumbY = fillTop.clamp(trackTop, trackBottom);
-    canvas.drawCircle(
-      Offset(cx, thumbY),
-      thumbR,
-      Paint()..color = _kYellow,
-    );
+    canvas.drawCircle(Offset(cx, thumbY), thumbR, Paint()..color = _kYellow);
     canvas.drawCircle(
       Offset(cx, thumbY),
       thumbR,
@@ -1212,10 +1183,7 @@ class _QueuePanel extends StatelessWidget {
                 ),
                 Text(
                   'перетащите',
-                  style: GoogleFonts.figtree(
-                    color: _kIconDim,
-                    fontSize: 11,
-                  ),
+                  style: GoogleFonts.figtree(color: _kIconDim, fontSize: 11),
                 ),
                 IconButton(
                   onPressed: onClose,
@@ -1238,56 +1206,57 @@ class _QueuePanel extends StatelessWidget {
                   child: TrackContextMenu(
                     actions: standardTrackActions(context, t, copyTitle: true),
                     child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      mouseCursor: SystemMouseCursors.click,
-                      onTap: () => onSelect(index),
-                      borderRadius: BorderRadius.circular(8),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 8,
-                        ),
-                        child: Row(
-                          children: [
-                            SizedBox(
-                              width: 22,
-                              child: Text(
-                                '${index + 1}',
-                                style: GoogleFonts.figtree(
-                                  color: current ? _kYellow : _kIconDim,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
+                      color: Colors.transparent,
+                      child: InkWell(
+                        mouseCursor: SystemMouseCursors.click,
+                        onTap: () => onSelect(index),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 22,
+                                child: Text(
+                                  '${index + 1}',
+                                  style: GoogleFonts.figtree(
+                                    color: current ? _kYellow : _kIconDim,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                               ),
-                            ),
-                            Expanded(
-                              child: Text(
-                                '${t.displayArtist} - ${t.displayTitle}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: GoogleFonts.figtree(
-                                  color: current ? _kYellow : AppTheme.paper,
-                                  fontWeight: current
-                                      ? FontWeight.w700
-                                      : FontWeight.w500,
-                                  fontSize: 13,
+                              Expanded(
+                                child: TrackTitleLine(
+                                  title: t.displayArtist.isEmpty
+                                      ? t.displayTitle
+                                      : '${t.displayArtist} - ${t.displayTitle}',
+                                  note: t.displayNote,
+                                  style: GoogleFonts.figtree(
+                                    color: current ? _kYellow : AppTheme.paper,
+                                    fontWeight: current
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                    fontSize: 13,
+                                  ),
                                 ),
                               ),
-                            ),
-                            MouseRegion(
-                              cursor: SystemMouseCursors.grab,
-                              child: Icon(
-                                Icons.drag_handle_rounded,
-                                size: 18,
-                                color: _kIconDim.withValues(alpha: 0.7),
+                              MouseRegion(
+                                cursor: SystemMouseCursors.grab,
+                                child: Icon(
+                                  Icons.drag_handle_rounded,
+                                  size: 18,
+                                  color: _kIconDim.withValues(alpha: 0.7),
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
                   ),
                 );
               },

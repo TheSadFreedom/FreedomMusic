@@ -8,6 +8,7 @@ import '../theme/app_theme.dart';
 import '../utils/duration_format.dart';
 import 'track_cover_play.dart';
 import 'track_overflow_menu.dart';
+import 'track_title_line.dart';
 
 class TrackTile extends StatelessWidget {
   const TrackTile({
@@ -43,101 +44,89 @@ class TrackTile extends StatelessWidget {
             )
           : const [],
       child: Material(
-      color: Colors.transparent,
-      child: InkWell(
-        mouseCursor: onTap != null || enableMetadataEdit || enableTrash
-            ? SystemMouseCursors.click
-            : SystemMouseCursors.basic,
-        onTap: onTap,
-        onLongPress: onLongPress ??
-            (enableMetadataEdit
-                ? () => openMetadataEditor(context, track)
-                : null),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            children: [
-              TrackCoverPlay(
-                path: track.coverPath,
-                onPlay: onTap ?? () {},
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
+        color: Colors.transparent,
+        child: InkWell(
+          mouseCursor: onTap != null || enableMetadataEdit || enableTrash
+              ? SystemMouseCursors.click
+              : SystemMouseCursors.basic,
+          onTap: onTap,
+          onLongPress:
+              onLongPress ??
+              (enableMetadataEdit
+                  ? () => openMetadataEditor(context, track)
+                  : null),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                TrackCoverPlay(path: track.coverPath, onPlay: onTap ?? () {}),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TrackTitleLine(
+                        title: track.displayTitle,
+                        note: track.displayNote,
                         onTap: () => openAlbumForTrack(context, track),
-                        child: Text(
-                          track.displayTitle,
+                        style: GoogleFonts.figtree(
+                          color: AppTheme.paper,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      if (subtitle != null)
+                        Text(
+                          subtitle!,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: GoogleFonts.figtree(
-                            color: AppTheme.paper,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 15,
+                            color: AppTheme.paperMuted,
+                            fontSize: 13,
                           ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    if (subtitle != null)
-                      Text(
-                        subtitle!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.figtree(
-                          color: AppTheme.paperMuted,
-                          fontSize: 13,
-                        ),
-                      )
-                    else
-                      MouseRegion(
-                        cursor: SystemMouseCursors.click,
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: () => openArtistFromTrack(context, track),
-                          child: Text(
-                            track.displayArtist,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.figtree(
-                              color: AppTheme.paperMuted,
-                              fontSize: 13,
+                        )
+                      else
+                        MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => openArtistFromTrack(context, track),
+                            child: Text(
+                              track.displayArtist,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.figtree(
+                                color: AppTheme.paperMuted,
+                                fontSize: 13,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                  ],
-                ),
-              ),
-              if (trailing != null) ...[
-                const SizedBox(width: 8),
-                trailing!,
-              ],
-              if (showDuration) ...[
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 44,
-                  child: Text(
-                    formatTrackDuration(track.durationMs),
-                    textAlign: TextAlign.right,
-                    style: GoogleFonts.figtree(
-                      color: AppTheme.paperMuted,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                    ),
+                    ],
                   ),
                 ),
+                if (trailing != null) ...[const SizedBox(width: 8), trailing!],
+                if (showDuration) ...[
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 44,
+                    child: Text(
+                      formatTrackDuration(track.durationMs),
+                      textAlign: TextAlign.right,
+                      style: GoogleFonts.figtree(
+                        color: AppTheme.paperMuted,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
-    ),
     );
   }
 }

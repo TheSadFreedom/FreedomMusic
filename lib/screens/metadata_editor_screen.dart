@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../data/track_key.dart';
+import '../navigation/app_navigator.dart';
 import '../models/track.dart';
 import '../services/library_service.dart';
 import '../services/metadata_writer.dart';
@@ -19,12 +20,16 @@ const _kYellow = Color(0xFFFFDB4D);
 const _kContentMaxWidth = 820.0;
 
 Future<bool> openMetadataEditor(BuildContext context, Track track) async {
-  final result = await Navigator.of(context, rootNavigator: true).push<bool>(
-    MaterialPageRoute(
-      fullscreenDialog: true,
-      builder: (_) => MetadataEditorScreen(track: track),
-    ),
-  );
+  final result =
+      await Navigator.of(
+        navigatorContext(context),
+        rootNavigator: true,
+      ).push<bool>(
+        MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (_) => MetadataEditorScreen(track: track),
+        ),
+      );
   return result ?? false;
 }
 
@@ -39,6 +44,7 @@ class MetadataEditorScreen extends StatefulWidget {
 
 class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
   late final TextEditingController _title;
+  late final TextEditingController _note;
   late final TextEditingController _artist;
   late final TextEditingController _album;
   late final TextEditingController _albumArtist;
@@ -62,9 +68,14 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
     super.initState();
     final t = widget.track;
     _title = TextEditingController(text: metaFieldText(t.title));
-    _artist = TextEditingController(text: metaFieldText(storedArtists(t.artist)));
+    _note = TextEditingController(text: metaFieldText(t.note));
+    _artist = TextEditingController(
+      text: metaFieldText(storedArtists(t.artist)),
+    );
     _album = TextEditingController(text: metaFieldText(t.album));
-    _albumArtist = TextEditingController(text: metaFieldText(storedPeople(t.albumArtist)));
+    _albumArtist = TextEditingController(
+      text: metaFieldText(storedPeople(t.albumArtist)),
+    );
     final storedProducer = metaFieldText(t.producer);
     final path = t.primaryPath;
     final fileProducer = storedProducer.isNotEmpty
@@ -97,6 +108,7 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
   @override
   void dispose() {
     _title.dispose();
+    _note.dispose();
     _artist.dispose();
     _album.dispose();
     _albumArtist.dispose();
@@ -163,6 +175,7 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
 
     final draft = MetadataDraft(
       title: _title.text,
+      note: _note.text,
       artist: _artist.text,
       album: _album.text,
       albumArtist: _albumArtist.text,
@@ -294,7 +307,9 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
               children: [
                 Center(
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: _kContentMaxWidth),
+                    constraints: const BoxConstraints(
+                      maxWidth: _kContentMaxWidth,
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -320,6 +335,7 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
                         _sectionLabel('Основные'),
                         const SizedBox(height: 12),
                         _field(_title, 'Название', requiredField: true),
+                        _field(_note, 'Заметка'),
                         _field(
                           _artist,
                           'Артист (запятая или feat.)',
@@ -490,10 +506,12 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
         ),
         cursorColor: _kYellow,
         decoration: _decoration(label),
-        validator: validator ??
+        validator:
+            validator ??
             (requiredField
-                ? (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Обязательное поле' : null
+                ? (v) => (v == null || v.trim().isEmpty)
+                      ? 'Обязательное поле'
+                      : null
                 : null),
       ),
     );
@@ -501,9 +519,7 @@ class _MetadataEditorScreenState extends State<MetadataEditorScreen> {
 
   InputDecoration _decoration(String label, {bool floatingLabel = true}) {
     final radius = BorderRadius.circular(14);
-    final idle = BorderSide(
-      color: AppTheme.paper.withValues(alpha: 0.08),
-    );
+    final idle = BorderSide(color: AppTheme.paper.withValues(alpha: 0.08));
     final focused = const BorderSide(color: _kYellow, width: 1.4);
 
     return InputDecoration(
@@ -578,7 +594,8 @@ class _CoverSection extends StatelessWidget {
       }
     }
 
-    final hasCover = !removed &&
+    final hasCover =
+        !removed &&
         (newBytes != null ||
             (existingPath != null && File(existingPath!).existsSync()));
 
@@ -682,8 +699,8 @@ class _PillAction extends StatelessWidget {
     final fg = filled
         ? AppTheme.paper
         : (enabled
-            ? AppTheme.paper.withValues(alpha: 0.9)
-            : AppTheme.paperMuted.withValues(alpha: 0.4));
+              ? AppTheme.paper.withValues(alpha: 0.9)
+              : AppTheme.paperMuted.withValues(alpha: 0.4));
     final border = filled
         ? BorderSide.none
         : BorderSide(

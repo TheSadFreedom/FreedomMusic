@@ -19,6 +19,7 @@ import '../utils/breakpoints.dart';
 import '../widgets/home_hero.dart';
 import '../widgets/system_playlist_icon.dart';
 import '../widgets/track_meta_links.dart';
+import '../widgets/track_title_line.dart';
 import '../widgets/track_overflow_menu.dart';
 import 'playlists_screen.dart';
 import 'release_detail_screen.dart';
@@ -65,8 +66,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final library = context.watch<LibraryService>();
     final playing = context.select<PlayerService, bool>((p) => p.playing);
     final searching = _appliedQuery.trim().isNotEmpty;
-    final results =
-        searching ? library.searchCatalog(_appliedQuery) : CatalogSearch.empty;
+    final results = searching
+        ? library.searchCatalog(_appliedQuery)
+        : CatalogSearch.empty;
 
     return HomeStage(
       playing: playing,
@@ -187,9 +189,7 @@ class _LiveHero extends StatelessWidget {
     final playing = context.select<PlayerService, bool>(
       (p) => p.playing && p.current != null,
     );
-    final current = context.select<PlayerService, Track?>(
-      (p) => p.current,
-    );
+    final current = context.select<PlayerService, Track?>((p) => p.current);
     return _CenteredHero(
       trackCount: library.tracks.length,
       empty: library.isEmpty,
@@ -334,10 +334,7 @@ class _CenteredHero extends StatelessWidget {
 }
 
 class _NowPlaying extends StatelessWidget {
-  const _NowPlaying({
-    required this.track,
-    required this.onStop,
-  });
+  const _NowPlaying({required this.track, required this.onStop});
 
   final Track track;
   final VoidCallback onStop;
@@ -362,67 +359,60 @@ class _NowPlaying extends StatelessWidget {
     return TrackContextMenu(
       actions: standardTrackActions(context, track),
       child: Row(
-      key: ValueKey(track.trackKey),
-      mainAxisAlignment: MainAxisAlignment.center,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(10),
-          child: cover,
-        ),
-        const SizedBox(width: 14),
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 280),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'СЕЙЧАС',
-                style: GoogleFonts.figtree(
-                  color: AppTheme.lime,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1.4,
+        key: ValueKey(track.trackKey),
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ClipRRect(borderRadius: BorderRadius.circular(10), child: cover),
+          const SizedBox(width: 14),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 280),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'СЕЙЧАС',
+                  style: GoogleFonts.figtree(
+                    color: AppTheme.lime,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.4,
+                  ),
                 ),
-              ),
-              TrackMetaLinks(
-                track: track,
-                titleStyle: GoogleFonts.syne(
-                  color: AppTheme.paper,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
+                TrackMetaLinks(
+                  track: track,
+                  titleStyle: GoogleFonts.syne(
+                    color: AppTheme.paper,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  artistStyle: GoogleFonts.figtree(
+                    color: AppTheme.paperMuted,
+                    fontSize: 13,
+                  ),
                 ),
-                artistStyle: GoogleFonts.figtree(
-                  color: AppTheme.paperMuted,
-                  fontSize: 13,
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        const SizedBox(width: 10),
-        Material(
-          color: AppTheme.lime,
-          shape: const CircleBorder(),
-          elevation: 2,
-          shadowColor: Colors.black,
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            mouseCursor: SystemMouseCursors.click,
-            onTap: onStop,
-            child: const SizedBox(
-              width: 36,
-              height: 36,
-              child: Icon(
-                Icons.stop_rounded,
-                color: Colors.black,
-                size: 22,
+          const SizedBox(width: 10),
+          Material(
+            color: AppTheme.lime,
+            shape: const CircleBorder(),
+            elevation: 2,
+            shadowColor: Colors.black,
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              mouseCursor: SystemMouseCursors.click,
+              onTap: onStop,
+              child: const SizedBox(
+                width: 36,
+                height: 36,
+                child: Icon(Icons.stop_rounded, color: Colors.black, size: 22),
               ),
             ),
           ),
-        ),
-      ],
+        ],
       ),
     );
   }
@@ -499,10 +489,7 @@ class _SearchPanel extends StatelessWidget {
       return Center(
         child: Text(
           'Ничего не найдено',
-          style: GoogleFonts.figtree(
-            color: AppTheme.paperMuted,
-            fontSize: 16,
-          ),
+          style: GoogleFonts.figtree(color: AppTheme.paperMuted, fontSize: 16),
         ),
       );
     }
@@ -520,12 +507,13 @@ class _SearchPanel extends StatelessWidget {
               actions: standardTrackActions(context, track),
               child: _CompactHit(
                 title: track.displayTitle,
+                note: track.displayNote,
                 detail: track.displayArtist,
                 leading: _CoverMark(path: track.coverPath, size: mark),
                 onTap: () => context.read<PlayerService>().playTracks(
-                      results.tracks,
-                      startIndex: index,
-                    ),
+                  results.tracks,
+                  startIndex: index,
+                ),
               ),
             );
           },
@@ -564,11 +552,7 @@ class _SearchPanel extends StatelessWidget {
                 icon: Icons.headphones_rounded,
                 size: mark,
               ),
-              onTap: () => openArtistPage(
-                context,
-                person.name,
-                producer: true,
-              ),
+              onTap: () => openArtistPage(context, person.name, producer: true),
             );
           },
         ),
@@ -620,7 +604,8 @@ class _SearchPanel extends StatelessWidget {
               onTap: () {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => PlaylistDetailScreen(playlistId: playlist.id),
+                    builder: (_) =>
+                        PlaylistDetailScreen(playlistId: playlist.id),
                   ),
                 );
               },
@@ -641,10 +626,7 @@ class _SearchPanel extends StatelessWidget {
           children: [
             for (var i = 0; i < sections.length; i++) ...[
               if (i > 0)
-                const VerticalDivider(
-                  width: 1,
-                  color: Color(0x14F2EDE4),
-                ),
+                const VerticalDivider(width: 1, color: Color(0x14F2EDE4)),
               Expanded(child: _SearchColumn(section: sections[i])),
             ],
           ],
@@ -667,9 +649,10 @@ class _SearchColumn extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final slots = ((constraints.maxHeight - _headerHeight) /
-                  _SearchPanel._rowHeight)
-              .floor();
+          final slots =
+              ((constraints.maxHeight - _headerHeight) /
+                      _SearchPanel._rowHeight)
+                  .floor();
           final room = slots < 0 ? 0 : slots;
           final overflow = section.count > room && room > 0;
           final shown = overflow ? room - 1 : section.count.clamp(0, room);
@@ -781,12 +764,14 @@ class _CompactHit extends StatelessWidget {
   const _CompactHit({
     required this.title,
     required this.onTap,
+    this.note,
     this.detail,
     this.leading,
     this.titleColor = AppTheme.paper,
   });
 
   final String title;
+  final String? note;
   final String? detail;
   final Widget? leading;
   final Color titleColor;
@@ -804,15 +789,11 @@ class _CompactHit extends StatelessWidget {
           onTap: onTap,
           child: Row(
             children: [
-              if (leading != null) ...[
-                leading!,
-                SizedBox(width: style.gap),
-              ],
+              if (leading != null) ...[leading!, SizedBox(width: style.gap)],
               Expanded(
-                child: Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                child: TrackTitleLine(
+                  title: title,
+                  note: note,
                   style: GoogleFonts.figtree(
                     color: titleColor,
                     fontWeight: FontWeight.w600,
@@ -883,7 +864,11 @@ class _CoverMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget child = Icon(Icons.album, color: AppTheme.mossBright, size: size * 0.7);
+    Widget child = Icon(
+      Icons.album,
+      color: AppTheme.mossBright,
+      size: size * 0.7,
+    );
     final cover = path;
     if (cover != null && File(cover).existsSync()) {
       child = Image.file(
@@ -912,34 +897,19 @@ class _PlaylistMark extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (Color background, Color foreground) = switch (playlist.systemKind) {
-      Playlist.kindNew => (
-          const Color(0xFFFFDB4D),
-          const Color(0xFF141414),
-        ),
-      Playlist.kindIncomplete => (
-          AppTheme.lime,
-          const Color(0xFF141414),
-        ),
-      Playlist.kindNoProducer => (
-          AppTheme.mossBright,
-          const Color(0xFF141414),
-        ),
+      Playlist.kindNew => (const Color(0xFFFFDB4D), const Color(0xFF141414)),
+      Playlist.kindIncomplete => (AppTheme.lime, const Color(0xFF141414)),
+      Playlist.kindNoProducer => (AppTheme.mossBright, const Color(0xFF141414)),
       Playlist.kindMissingGenre => (
-          const Color(0xFFFFDB4D),
-          const Color(0xFF141414),
-        ),
+        const Color(0xFFFFDB4D),
+        const Color(0xFF141414),
+      ),
       Playlist.kindMissingLyrics => (
-          AppTheme.mossBright,
-          const Color(0xFF141414),
-        ),
-      Playlist.kindMetadataReady => (
-          AppTheme.lime,
-          const Color(0xFF141414),
-        ),
-      Playlist.kindTrash => (
-          const Color(0xFF3A3330),
-          AppTheme.paper,
-        ),
+        AppTheme.mossBright,
+        const Color(0xFF141414),
+      ),
+      Playlist.kindMetadataReady => (AppTheme.lime, const Color(0xFF141414)),
+      Playlist.kindTrash => (const Color(0xFF3A3330), AppTheme.paper),
       _ => (AppTheme.inkLift, AppTheme.mossBright),
     };
     final cover = playlist.coverPath;

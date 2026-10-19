@@ -5,9 +5,11 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../models/track.dart';
+import '../navigation/app_navigator.dart';
 import '../services/library_service.dart';
 import '../services/player_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/track_title_line.dart';
 
 const _kYellow = Color(0xFFFFDB4D);
 
@@ -31,8 +33,7 @@ Future<bool> confirmDeleteForever(BuildContext context, Track track) {
     context,
     track: track,
     title: 'Удалить навсегда?',
-    body:
-        'Файл будет удалён с диска. Восстановить трек уже не получится.',
+    body: 'Файл будет удалён с диска. Восстановить трек уже не получится.',
     confirmLabel: 'Удалить файл',
     icon: Icons.delete_forever_rounded,
     accent: const Color(0xFFFF8A80),
@@ -144,10 +145,9 @@ class _TrackConfirmDialog extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 4),
-                          Text(
-                            track.displayTitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                          TrackTitleLine(
+                            title: track.displayTitle,
+                            note: track.displayNote,
                             style: GoogleFonts.figtree(
                               color: AppTheme.paper,
                               fontWeight: FontWeight.w700,
@@ -251,6 +251,7 @@ class _DialogButton extends StatelessWidget {
 }
 
 Future<void> moveTrackToTrash(BuildContext context, Track track) async {
+  context = navigatorContext(context);
   final ok = await confirmMoveToTrash(context, track);
   if (!ok || !context.mounted) return;
   final library = context.read<LibraryService>();
@@ -260,11 +261,13 @@ Future<void> moveTrackToTrash(BuildContext context, Track track) async {
 }
 
 Future<void> restoreTrackFromTrash(BuildContext context, Track track) async {
+  context = navigatorContext(context);
   final library = context.read<LibraryService>();
   await library.restoreFromTrash(track.trackKey);
 }
 
 Future<void> deleteTrackForever(BuildContext context, Track track) async {
+  context = navigatorContext(context);
   final ok = await confirmDeleteForever(context, track);
   if (!ok || !context.mounted) return;
   final library = context.read<LibraryService>();

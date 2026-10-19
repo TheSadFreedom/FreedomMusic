@@ -17,6 +17,7 @@ class MetadataDraft {
     required this.album,
     this.albumArtist,
     this.producer,
+    this.note,
     required this.genre,
     this.year,
     this.trackNumber,
@@ -35,6 +36,7 @@ class MetadataDraft {
       album: track.album,
       albumArtist: track.albumArtist,
       producer: track.producer,
+      note: track.note,
       genre: track.genre,
       year: track.year,
       trackNumber: track.trackNumber,
@@ -49,6 +51,7 @@ class MetadataDraft {
   String album;
   String? albumArtist;
   String? producer;
+  String? note;
   String genre;
   int? year;
   int? trackNumber;
@@ -81,8 +84,11 @@ class MetadataWriter {
     final genre = isBlankMeta(draft.genre) ? 'Unknown' : draft.genre.trim();
     final albumArtist = storedPeople(draft.albumArtist);
     final producerNamesOnly = producerNames(draft.producer);
-    final producer =
-        producerNamesOnly.isEmpty ? null : producerNamesOnly.join(', ');
+    final producer = producerNamesOnly.isEmpty
+        ? null
+        : producerNamesOnly.join(', ');
+    final noteText = draft.note?.trim() ?? '';
+    final note = isBlankMeta(noteText) ? null : noteText;
     final lyrics = draft.lyrics?.trim();
     final year = draft.year;
     final trackNumber = draft.trackNumber;
@@ -92,11 +98,7 @@ class MetadataWriter {
     Picture? coverPicture;
     if (draft.coverBytes != null && draft.coverBytes!.isNotEmpty) {
       final mime = draft.coverMime ?? 'image/jpeg';
-      coverPicture = Picture(
-        draft.coverBytes!,
-        mime,
-        PictureType.coverFront,
-      );
+      coverPicture = Picture(draft.coverBytes!, mime, PictureType.coverFront);
     }
 
     for (final path in filePaths) {
@@ -111,6 +113,7 @@ class MetadataWriter {
         album: album,
         albumArtist: albumArtist,
         producer: (producer == null || producer.isEmpty) ? null : producer,
+        note: note,
         genre: genre,
         year: year,
         trackNumber: trackNumber,
@@ -122,10 +125,7 @@ class MetadataWriter {
       );
     }
 
-    final newKey = buildTrackKey(
-      artist: artist,
-      title: title,
-    );
+    final newKey = buildTrackKey(artist: artist, title: title);
 
     String? coverPath = track.coverPath;
     if (draft.removeCover) {
@@ -160,6 +160,7 @@ class MetadataWriter {
           ? null
           : albumArtist,
       producer: (producer == null || producer.isEmpty) ? null : producer,
+      note: note,
       genre: genre,
       year: year,
       trackNumber: trackNumber,
@@ -177,6 +178,7 @@ class MetadataWriter {
     required String album,
     required String? albumArtist,
     required String? producer,
+    required String? note,
     required String genre,
     required int? year,
     required int? trackNumber,
@@ -207,8 +209,15 @@ class MetadataWriter {
         if (tag is Mp3Metadata) {
           tag.bandOrOrchestra = albumArtist;
         } else if (tag is VorbisMetadata) {
-          tag.producer =
-              (producer == null || producer.isEmpty) ? [] : [producer];
+          tag.producer = (producer == null || producer.isEmpty)
+              ? []
+              : [producer];
+          final label = note?.trim() ?? '';
+          if (label.isEmpty) {
+            tag.unknowns.remove('NOTE');
+          } else {
+            tag.unknowns['NOTE'] = label;
+          }
         }
 
         if (removeCover) {
@@ -227,8 +236,8 @@ class MetadataWriter {
           tag.setPictures(keptPictures);
         }
       });
-      // The ID3 writer drops TXXX frames, so the producer is appended after.
-      writeMp3ProducerFrame(path, producer);
+      // The ID3 writer drops TXXX frames, so producer and note are appended after.
+      writeMp3SideFrames(path, producer: producer, note: note);
     });
   }
 
@@ -242,8 +251,8 @@ class MetadataWriter {
     final ext = mime.contains('png')
         ? '.png'
         : mime.contains('webp')
-            ? '.webp'
-            : '.jpg';
+        ? '.webp'
+        : '.jpg';
     final out = File(p.join(paths.coversDir, '$trackKey$ext'));
     await out.writeAsBytes(bytes, flush: true);
     return out.path;
@@ -286,10 +295,41 @@ List<Picture> _picturesOf(Object tag) {
     VorbisMetadata meta => List<Picture>.from(meta.pictures),
     RiffMetadata meta => List<Picture>.from(meta.pictures),
     ApeMetadata meta => List<Picture>.from(meta.pictures),
-    Mp4Metadata meta =>
-      meta.picture == null ? <Picture>[] : [meta.picture!],
+    Mp4Metadata meta => meta.picture == null ? <Picture>[] : [meta.picture!],
     _ => const <Picture>[],
   };
+}
+
+/// Note stored as an ID3 `TXXX:NOTE` frame or a Vorbis `NOTE` tag.
+String? readFileNote(String path) {
+  try {
+    final tag = readAllMetadata(File(path), getImage: false);
+    return switch (tag) {
+      Mp3Metadata meta => _customText(meta, 'note'),
+      VorbisMetadata meta => _vorbisNote(meta),
+      _ => null,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+String? _vorbisNote(VorbisMetadata meta) {
+  for (final entry in meta.unknowns.entries) {
+    if (entry.key.trim().toLowerCase() != 'note') continue;
+    final value = entry.value.replaceAll('\u0000', '').trim();
+    if (!isBlankMeta(value)) return value;
+  }
+  return null;
+}
+
+String? _customText(Mp3Metadata meta, String key) {
+  for (final entry in meta.customMetadata.entries) {
+    if (entry.key.trim().toLowerCase() != key) continue;
+    final value = entry.value.replaceAll('\u0000', '').trim();
+    if (!isBlankMeta(value)) return value;
+  }
+  return null;
 }
 
 /// Producer stored as an ID3 `TXXX:PRODUCER` frame or a Vorbis `PRODUCER` tag.
@@ -307,12 +347,10 @@ String? readFileProducer(String path) {
 }
 
 String? _producerFromMp3(Mp3Metadata meta) {
+  final direct = _customText(meta, 'producer');
+  if (direct != null) return direct;
   for (final entry in meta.customMetadata.entries) {
     final key = entry.key.trim().toLowerCase();
-    if (key == 'producer') {
-      final value = entry.value.replaceAll('\u0000', '').trim();
-      if (!isBlankMeta(value)) return value;
-    }
     if (key == 'tipl' || key == 'ipls') {
       final fromList = _producerFromInvolved(entry.value);
       if (fromList != null) return fromList;
@@ -339,10 +377,8 @@ String? _firstNonEmpty(List<String> values) {
   return null;
 }
 
-/// Appends `TXXX:PRODUCER` to an ID3v2.4 tag written by the metadata library.
-void writeMp3ProducerFrame(String path, String? producer) {
-  final value = producer?.trim() ?? '';
-  if (value.isEmpty) return;
+/// Rewrites `TXXX:PRODUCER` and `TXXX:NOTE` on an ID3v2.4 tag.
+void writeMp3SideFrames(String path, {String? producer, String? note}) {
   final file = File(path);
   final bytes = file.readAsBytesSync();
   if (bytes.length < 10 ||
@@ -356,15 +392,64 @@ void writeMp3ProducerFrame(String path, String? producer) {
   final tagEnd = 10 + payloadSize;
   if (tagEnd <= 10 || tagEnd > bytes.length) return;
 
-  final frame = _txxxFrame('PRODUCER', value);
+  final kept = BytesBuilder(copy: false);
+  var offset = 10;
+  if ((bytes[5] & 0x40) == 0) {
+    while (offset + 10 <= tagEnd) {
+      final id = String.fromCharCodes(bytes.sublist(offset, offset + 4));
+      if (id.codeUnitAt(0) == 0) break;
+      final size = _readSyncSafe(bytes, offset + 4);
+      final frameEnd = offset + 10 + size;
+      if (size < 0 || frameEnd > tagEnd) {
+        kept.add(bytes.sublist(offset, tagEnd));
+        offset = tagEnd;
+        break;
+      }
+      final description = id == 'TXXX'
+          ? _txxxDescription(bytes, offset + 10, size)?.toLowerCase()
+          : null;
+      final drop = description == 'producer' || description == 'note';
+      if (!drop) kept.add(bytes.sublist(offset, frameEnd));
+      offset = frameEnd;
+    }
+  } else {
+    kept.add(bytes.sublist(10, tagEnd));
+  }
+
+  final frames = BytesBuilder(copy: false)..add(kept.toBytes());
+  final producerValue = producer?.trim() ?? '';
+  if (!isBlankMeta(producerValue)) {
+    frames.add(_txxxFrame('PRODUCER', producerValue));
+  }
+  final noteValue = note?.trim() ?? '';
+  if (!isBlankMeta(noteValue)) {
+    frames.add(_txxxFrame('NOTE', noteValue));
+  }
+  final body = frames.toBytes();
   final header = Uint8List.fromList(bytes.sublist(0, 10));
-  _writeSyncSafe(header, 6, payloadSize + frame.length);
+  _writeSyncSafe(header, 6, body.length);
   final out = BytesBuilder(copy: false)
     ..add(header)
-    ..add(bytes.sublist(10, tagEnd))
-    ..add(frame)
+    ..add(body)
     ..add(bytes.sublist(tagEnd));
   file.writeAsBytesSync(out.takeBytes());
+}
+
+String? _txxxDescription(Uint8List data, int start, int size) {
+  if (size < 2 || start + size > data.length) return null;
+  final encoding = data[start];
+  final payload = data.sublist(start + 1, start + size);
+  if (encoding == 1 || encoding == 2) {
+    for (var i = 0; i + 1 < payload.length; i += 2) {
+      if (payload[i] == 0 && payload[i + 1] == 0) {
+        return String.fromCharCodes(payload.sublist(0, i)).toLowerCase();
+      }
+    }
+    return null;
+  }
+  final zero = payload.indexOf(0);
+  final bytes = zero < 0 ? payload : payload.sublist(0, zero);
+  return utf8.decode(bytes, allowMalformed: true);
 }
 
 int _readSyncSafe(Uint8List data, int offset) {

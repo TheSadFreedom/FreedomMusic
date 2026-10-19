@@ -19,7 +19,7 @@ class AppDatabase {
     final db = await databaseFactory.openDatabase(
       paths.databasePath,
       options: OpenDatabaseOptions(
-        version: 10,
+        version: 11,
         onCreate: (db, version) async {
           await db.execute('''
             CREATE TABLE tracks (
@@ -30,6 +30,7 @@ class AppDatabase {
               genre TEXT NOT NULL,
               album_artist TEXT,
               producer TEXT,
+              note TEXT,
               lyrics TEXT,
               year INTEGER,
               track_number INTEGER,
@@ -106,9 +107,7 @@ class AppDatabase {
         },
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
-            await db.execute(
-              'ALTER TABLE tracks ADD COLUMN album_artist TEXT',
-            );
+            await db.execute('ALTER TABLE tracks ADD COLUMN album_artist TEXT');
             await db.execute('ALTER TABLE tracks ADD COLUMN lyrics TEXT');
           }
           if (oldVersion < 3) {
@@ -142,9 +141,7 @@ class AppDatabase {
             );
           }
           if (oldVersion < 6) {
-            await db.execute(
-              'ALTER TABLE tracks ADD COLUMN added_at INTEGER',
-            );
+            await db.execute('ALTER TABLE tracks ADD COLUMN added_at INTEGER');
           }
           if (oldVersion < 7) {
             await db.execute('''
@@ -187,6 +184,9 @@ class AppDatabase {
                 to_display TEXT NOT NULL
               )
             ''');
+          }
+          if (oldVersion < 11) {
+            await db.execute('ALTER TABLE tracks ADD COLUMN note TEXT');
           }
         },
       ),
@@ -236,16 +236,16 @@ class AppDatabase {
       );
 
       if (dest.isEmpty) {
-        final inserted = Map<String, Object?>.from(sourceRow)..['track_key'] = newKey;
+        final inserted = Map<String, Object?>.from(sourceRow)
+          ..['track_key'] = newKey;
         await txn.insert('tracks', inserted);
       } else {
         final destRow = dest.first;
         final destTrashed = destRow['trashed_at'] as int?;
         final srcTrashed = sourceRow['trashed_at'] as int?;
-        final mergedTrashed =
-            (destTrashed == null || srcTrashed == null)
-                ? null
-                : (destTrashed <= srcTrashed ? destTrashed : srcTrashed);
+        final mergedTrashed = (destTrashed == null || srcTrashed == null)
+            ? null
+            : (destTrashed <= srcTrashed ? destTrashed : srcTrashed);
         final destAdded = destRow['added_at'] as int?;
         final srcAdded = sourceRow['added_at'] as int?;
         final int? mergedAdded;
@@ -258,10 +258,7 @@ class AppDatabase {
         }
         await txn.update(
           'tracks',
-          {
-            'trashed_at': mergedTrashed,
-            'added_at': mergedAdded,
-          },
+          {'trashed_at': mergedTrashed, 'added_at': mergedAdded},
           where: 'track_key = ?',
           whereArgs: [newKey],
         );
@@ -304,24 +301,23 @@ class AppDatabase {
         'UPDATE playlist_tracks SET track_key = ? WHERE track_key = ?',
         [newKey, oldKey],
       );
-      await txn.delete(
-        'tracks',
-        where: 'track_key = ?',
-        whereArgs: [oldKey],
-      );
+      await txn.delete('tracks', where: 'track_key = ?', whereArgs: [oldKey]);
     });
   }
 
   /// Visible library tracks (not in trash). Pass [includeTrashed] for all.
   Future<List<Track>> getAllTracks({bool includeTrashed = false}) async {
-    final rows = await _db.rawQuery('''
+    final rows = await _db.rawQuery(
+      '''
       SELECT t.*, GROUP_CONCAT(f.file_path, '||') AS paths
       FROM tracks t
       INNER JOIN track_files f ON f.track_key = t.track_key
       WHERE (? = 1 OR t.trashed_at IS NULL)
       GROUP BY t.track_key
       ORDER BY t.artist COLLATE NOCASE, t.title COLLATE NOCASE
-    ''', [includeTrashed ? 1 : 0]);
+    ''',
+      [includeTrashed ? 1 : 0],
+    );
     return rows.map(_trackFromRow).toList();
   }
 
@@ -337,7 +333,8 @@ class AppDatabase {
     return rows.map(_trackFromRow).toList();
   }
 
-  Future<List<({String trackKey, int trashedAt})>> getTrashedTrackEntries() async {
+  Future<List<({String trackKey, int trashedAt})>>
+  getTrashedTrackEntries() async {
     final rows = await _db.query(
       'tracks',
       columns: ['track_key', 'trashed_at'],
@@ -369,19 +366,25 @@ class AppDatabase {
   }
 
   Future<Track?> getTrack(String trackKey) async {
-    final rows = await _db.rawQuery('''
+    final rows = await _db.rawQuery(
+      '''
       SELECT t.*, GROUP_CONCAT(f.file_path, '||') AS paths
       FROM tracks t
       INNER JOIN track_files f ON f.track_key = t.track_key
       WHERE t.track_key = ?
       GROUP BY t.track_key
-    ''', [trackKey]);
+    ''',
+      [trackKey],
+    );
     if (rows.isEmpty) return null;
     return _trackFromRow(rows.first);
   }
 
   Future<Map<String, int>> getFileMtimes() async {
-    final rows = await _db.query('track_files', columns: ['file_path', 'mtime_ms']);
+    final rows = await _db.query(
+      'track_files',
+      columns: ['file_path', 'mtime_ms'],
+    );
     return {
       for (final row in rows)
         row['file_path'] as String: row['mtime_ms'] as int,
@@ -428,7 +431,7 @@ class AppDatabase {
       final addedAt = existing.isEmpty
           ? (track.addedAt?.millisecondsSinceEpoch ?? now)
           : (existing.first['added_at'] as int? ??
-              track.addedAt?.millisecondsSinceEpoch);
+                track.addedAt?.millisecondsSinceEpoch);
       final incomingLyrics = track.lyrics?.trim();
       final existingLyrics = existing.isEmpty
           ? null
@@ -436,42 +439,35 @@ class AppDatabase {
       final lyrics = (incomingLyrics != null && incomingLyrics.isNotEmpty)
           ? incomingLyrics
           : (existingLyrics != null && existingLyrics.isNotEmpty
-              ? existingLyrics
-              : null);
+                ? existingLyrics
+                : null);
 
-      await txn.insert(
-        'tracks',
-        {
-          'track_key': track.trackKey,
-          'title': track.title,
-          'artist': track.artist,
-          'album': track.album,
-          'genre': track.genre,
-          'album_artist': track.albumArtist,
-          'producer': track.producer,
-          'lyrics': lyrics,
-          'year': track.year,
-          'track_number': track.trackNumber,
-          'track_total': track.trackTotal,
-          'disc_number': track.discNumber,
-          'duration_ms': track.durationMs,
-          'cover_path': track.coverPath,
-          'trashed_at': trashedAt,
-          'added_at': addedAt,
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      await txn.insert('tracks', {
+        'track_key': track.trackKey,
+        'title': track.title,
+        'artist': track.artist,
+        'album': track.album,
+        'genre': track.genre,
+        'album_artist': track.albumArtist,
+        'producer': track.producer,
+        'note': track.note,
+        'lyrics': lyrics,
+        'year': track.year,
+        'track_number': track.trackNumber,
+        'track_total': track.trackTotal,
+        'disc_number': track.discNumber,
+        'duration_ms': track.durationMs,
+        'cover_path': track.coverPath,
+        'trashed_at': trashedAt,
+        'added_at': addedAt,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
 
       // If this path was linked to another key, move it.
-      await txn.insert(
-        'track_files',
-        {
-          'file_path': filePath,
-          'track_key': track.trackKey,
-          'mtime_ms': mtimeMs,
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      await txn.insert('track_files', {
+        'file_path': filePath,
+        'track_key': track.trackKey,
+        'mtime_ms': mtimeMs,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     });
   }
 
@@ -495,42 +491,35 @@ class AppDatabase {
       final addedAt = existing.isEmpty
           ? updated.addedAt?.millisecondsSinceEpoch
           : (existing.first['added_at'] as int? ??
-              updated.addedAt?.millisecondsSinceEpoch);
+                updated.addedAt?.millisecondsSinceEpoch);
 
-      await txn.insert(
-        'tracks',
-        {
-          'track_key': newKey,
-          'title': updated.title,
-          'artist': updated.artist,
-          'album': updated.album,
-          'genre': updated.genre,
-          'album_artist': updated.albumArtist,
-          'producer': updated.producer,
-          'lyrics': updated.lyrics,
-          'year': updated.year,
-          'track_number': updated.trackNumber,
-          'track_total': updated.trackTotal,
-          'disc_number': updated.discNumber,
-          'duration_ms': updated.durationMs,
-          'cover_path': updated.coverPath,
-          'trashed_at': trashedAt,
-          'added_at': addedAt,
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      await txn.insert('tracks', {
+        'track_key': newKey,
+        'title': updated.title,
+        'artist': updated.artist,
+        'album': updated.album,
+        'genre': updated.genre,
+        'album_artist': updated.albumArtist,
+        'producer': updated.producer,
+        'note': updated.note,
+        'lyrics': updated.lyrics,
+        'year': updated.year,
+        'track_number': updated.trackNumber,
+        'track_total': updated.trackTotal,
+        'disc_number': updated.discNumber,
+        'duration_ms': updated.durationMs,
+        'cover_path': updated.coverPath,
+        'trashed_at': trashedAt,
+        'added_at': addedAt,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
 
       for (final path in updated.filePaths) {
         final file = await File(path).stat();
-        await txn.insert(
-          'track_files',
-          {
-            'file_path': path,
-            'track_key': newKey,
-            'mtime_ms': file.modified.millisecondsSinceEpoch,
-          },
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
+        await txn.insert('track_files', {
+          'file_path': path,
+          'track_key': newKey,
+          'mtime_ms': file.modified.millisecondsSinceEpoch,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
 
       if (oldTrackKey != newKey) {
@@ -587,12 +576,11 @@ class AppDatabase {
   /// normalizeTag(from) → display name of canonical artist card.
   Future<Map<String, String>> getArtistAliasMap() async {
     final rows = await getArtistAliases();
-    return {
-      for (final row in rows) row.fromNorm: row.toDisplay,
-    };
+    return {for (final row in rows) row.fromNorm: row.toDisplay};
   }
 
-  Future<List<ArtistAlias>> getArtistAliases() => _readAliases('artist_aliases');
+  Future<List<ArtistAlias>> getArtistAliases() =>
+      _readAliases('artist_aliases');
 
   Future<List<ArtistAlias>> getProducerAliases() =>
       _readAliases('producer_aliases');
@@ -668,15 +656,11 @@ class AppDatabase {
         }
       }
 
-      await txn.insert(
-        table,
-        {
-          'from_norm': fromNorm,
-          'from_display': fromDisplay.trim(),
-          'to_display': finalTo,
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      await txn.insert(table, {
+        'from_norm': fromNorm,
+        'from_display': fromDisplay.trim(),
+        'to_display': finalTo,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     });
   }
 
@@ -691,9 +675,9 @@ class AppDatabase {
     var changed = 0;
 
     for (final track in tracks) {
-      final touches = track.artists
-          .any((a) => normalizeTag(a) == fromNorm);
-      final albumTouches = track.albumArtist != null &&
+      final touches = track.artists.any((a) => normalizeTag(a) == fromNorm);
+      final albumTouches =
+          track.albumArtist != null &&
           splitArtists(track.albumArtist)
               .any((a) => normalizeTag(a) == fromNorm);
       if (!touches && !albumTouches) continue;
@@ -770,8 +754,7 @@ class AppDatabase {
       GROUP BY track_key
     ''');
     return {
-      for (final row in rows)
-        row['track_key'] as String: row['cnt'] as int,
+      for (final row in rows) row['track_key'] as String: row['cnt'] as int,
     };
   }
 
@@ -789,38 +772,41 @@ class AppDatabase {
     required ChartPeriod period,
   }) async {
     final since = period.sinceMs;
-    final rows = await _db.rawQuery('''
+    final rows = await _db.rawQuery(
+      '''
       SELECT track_key, COUNT(*) AS cnt
       FROM play_events
       WHERE (? IS NULL OR played_at >= ?)
       GROUP BY track_key
-    ''', [since, since]);
+    ''',
+      [since, since],
+    );
 
     final counts = <String, int>{
-      for (final row in rows)
-        row['track_key'] as String: row['cnt'] as int,
+      for (final row in rows) row['track_key'] as String: row['cnt'] as int,
     };
 
     // Full library chart: include tracks with 0 plays.
-    final result = library
-        .map(
-          (track) => ChartEntry(
-            track: track,
-            playCount: counts[track.trackKey] ?? 0,
-          ),
-        )
-        .toList()
-      ..sort((a, b) {
-        final byPlays = b.playCount.compareTo(a.playCount);
-        if (byPlays != 0) return byPlays;
-        final byTitle = a.track.displayTitle
-            .toLowerCase()
-            .compareTo(b.track.displayTitle.toLowerCase());
-        if (byTitle != 0) return byTitle;
-        return a.track.displayArtist
-            .toLowerCase()
-            .compareTo(b.track.displayArtist.toLowerCase());
-      });
+    final result =
+        library
+            .map(
+              (track) => ChartEntry(
+                track: track,
+                playCount: counts[track.trackKey] ?? 0,
+              ),
+            )
+            .toList()
+          ..sort((a, b) {
+            final byPlays = b.playCount.compareTo(a.playCount);
+            if (byPlays != 0) return byPlays;
+            final byTitle = a.track.displayTitle.toLowerCase().compareTo(
+              b.track.displayTitle.toLowerCase(),
+            );
+            if (byTitle != 0) return byTitle;
+            return a.track.displayArtist.toLowerCase().compareTo(
+              b.track.displayArtist.toLowerCase(),
+            );
+          });
     return result;
   }
 
@@ -867,8 +853,7 @@ class AppDatabase {
       'name': 'Корзина',
       'created_at': now,
       'updated_at': now,
-      'description':
-          'Удалённые треки. Восстановите или удалите файл навсегда.',
+      'description': 'Удалённые треки. Восстановите или удалите файл навсегда.',
       'system_kind': Playlist.kindTrash,
     });
   }
@@ -940,7 +925,8 @@ class AppDatabase {
 
   Future<List<Track>> getNewTracks() async {
     final since = _newTracksSinceMs;
-    final rows = await _db.rawQuery('''
+    final rows = await _db.rawQuery(
+      '''
       SELECT t.*, GROUP_CONCAT(f.file_path, '||') AS paths
       FROM tracks t
       INNER JOIN track_files f ON f.track_key = t.track_key
@@ -949,11 +935,14 @@ class AppDatabase {
         AND t.added_at >= ?
       GROUP BY t.track_key
       ORDER BY t.added_at DESC
-    ''', [since]);
+    ''',
+      [since],
+    );
     return rows.map(_trackFromRow).toList();
   }
 
-  Future<List<({String trackKey, int addedAt})>> getTrackAddedAtEntries() async {
+  Future<List<({String trackKey, int addedAt})>>
+  getTrackAddedAtEntries() async {
     final rows = await _db.query(
       'tracks',
       columns: ['track_key', 'added_at'],
@@ -961,10 +950,7 @@ class AppDatabase {
     );
     return [
       for (final row in rows)
-        (
-          trackKey: row['track_key'] as String,
-          addedAt: row['added_at'] as int,
-        ),
+        (trackKey: row['track_key'] as String, addedAt: row['added_at'] as int),
     ];
   }
 
@@ -984,13 +970,16 @@ class AppDatabase {
   }
 
   Future<Playlist?> getPlaylist(int id) async {
-    final rows = await _db.rawQuery('''
+    final rows = await _db.rawQuery(
+      '''
       SELECT p.*, COUNT(pt.track_key) AS track_count
       FROM playlists p
       LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
       WHERE p.id = ?
       GROUP BY p.id
-    ''', [id]);
+    ''',
+      [id],
+    );
     if (rows.isEmpty) return null;
     return _playlistFromRow(rows.first);
   }
@@ -1033,19 +1022,16 @@ class AppDatabase {
     if (clearDescription) {
       map['description'] = null;
     } else if (description != null) {
-      map['description'] = description.trim().isEmpty ? null : description.trim();
+      map['description'] = description.trim().isEmpty
+          ? null
+          : description.trim();
     }
     if (clearCover) {
       map['cover_path'] = null;
     } else if (coverPath != null) {
       map['cover_path'] = coverPath;
     }
-    await _db.update(
-      'playlists',
-      map,
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await _db.update('playlists', map, where: 'id = ?', whereArgs: [id]);
   }
 
   Playlist _playlistFromRow(Map<String, Object?> r) {
@@ -1073,11 +1059,7 @@ class AppDatabase {
         where: 'playlist_id = ?',
         whereArgs: [id],
       );
-      await txn.delete(
-        'playlists',
-        where: 'id = ?',
-        whereArgs: [id],
-      );
+      await txn.delete('playlists', where: 'id = ?', whereArgs: [id]);
     });
   }
 
@@ -1089,7 +1071,8 @@ class AppDatabase {
     if (pl != null && pl.isNew) {
       return getNewTracks();
     }
-    final rows = await _db.rawQuery('''
+    final rows = await _db.rawQuery(
+      '''
       SELECT t.*, GROUP_CONCAT(f.file_path, '||') AS paths
       FROM playlist_tracks pt
       INNER JOIN tracks t ON t.track_key = pt.track_key
@@ -1097,7 +1080,9 @@ class AppDatabase {
       WHERE pt.playlist_id = ? AND t.trashed_at IS NULL
       GROUP BY t.track_key
       ORDER BY pt.position ASC
-    ''', [playlistId]);
+    ''',
+      [playlistId],
+    );
     return rows.map(_trackFromRow).toList();
   }
 
@@ -1171,8 +1156,9 @@ class AppDatabase {
   }
 
   /// Returns file paths and cover path before wiping DB rows.
-  Future<({List<String> filePaths, String? coverPath})>
-      deleteTrackPermanently(String trackKey) async {
+  Future<({List<String> filePaths, String? coverPath})> deleteTrackPermanently(
+    String trackKey,
+  ) async {
     final track = await getTrack(trackKey);
     final filePaths = track?.filePaths ?? const <String>[];
     final coverPath = track?.coverPath;
@@ -1193,11 +1179,7 @@ class AppDatabase {
         where: 'track_key = ?',
         whereArgs: [trackKey],
       );
-      await txn.delete(
-        'tracks',
-        where: 'track_key = ?',
-        whereArgs: [trackKey],
-      );
+      await txn.delete('tracks', where: 'track_key = ?', whereArgs: [trackKey]);
     });
 
     return (filePaths: filePaths, coverPath: coverPath);
@@ -1435,10 +1417,7 @@ class AppDatabase {
 
   Track _trackFromRow(Map<String, Object?> row) {
     final pathsRaw = row['paths'] as String? ?? '';
-    final paths = pathsRaw
-        .split('||')
-        .where((e) => e.isNotEmpty)
-        .toList();
+    final paths = pathsRaw.split('||').where((e) => e.isNotEmpty).toList();
     final trashedMs = row['trashed_at'] as int?;
     final addedMs = row['added_at'] as int?;
     return Track(
@@ -1449,6 +1428,7 @@ class AppDatabase {
       genre: row['genre'] as String,
       albumArtist: row['album_artist'] as String?,
       producer: row['producer'] as String?,
+      note: row['note'] as String?,
       lyrics: row['lyrics'] as String?,
       year: row['year'] as int?,
       trackNumber: row['track_number'] as int?,
@@ -1501,27 +1481,29 @@ class ArtistAlias {
   final String toDisplay;
 }
 
-enum ChartPeriod {
-  allTime,
-  year,
-  month,
-}
+enum ChartPeriod { allTime, year, month }
 
 extension ChartPeriodX on ChartPeriod {
   String get label => switch (this) {
-        ChartPeriod.allTime => 'Всё время',
-        ChartPeriod.year => 'Год',
-        ChartPeriod.month => 'Месяц',
-      };
+    ChartPeriod.allTime => 'Всё время',
+    ChartPeriod.year => 'Год',
+    ChartPeriod.month => 'Месяц',
+  };
 
   int? get sinceMs {
     final now = DateTime.now();
     return switch (this) {
       ChartPeriod.allTime => null,
-      ChartPeriod.year =>
-        DateTime(now.year - 1, now.month, now.day).millisecondsSinceEpoch,
-      ChartPeriod.month =>
-        DateTime(now.year, now.month - 1, now.day).millisecondsSinceEpoch,
+      ChartPeriod.year => DateTime(
+        now.year - 1,
+        now.month,
+        now.day,
+      ).millisecondsSinceEpoch,
+      ChartPeriod.month => DateTime(
+        now.year,
+        now.month - 1,
+        now.day,
+      ).millisecondsSinceEpoch,
     };
   }
 }

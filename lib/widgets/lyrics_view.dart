@@ -5,11 +5,13 @@ import 'package:provider/provider.dart';
 import '../services/player_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/lyrics_format.dart';
+import 'track_title_line.dart';
 
 /// What the player wants drawn behind the bar and above the rest of the app.
 class LyricsPresentation extends ChangeNotifier {
   bool visible = false;
   String title = '';
+  String? note;
   String? raw;
   bool fetching = false;
   bool notFound = false;
@@ -20,12 +22,14 @@ class LyricsPresentation extends ChangeNotifier {
   void update({
     required bool visible,
     required String title,
+    String? note,
     required String? raw,
     required bool fetching,
     required bool notFound,
   }) {
     if (this.visible == visible &&
         this.title == title &&
+        this.note == note &&
         this.raw == raw &&
         this.fetching == fetching &&
         this.notFound == notFound) {
@@ -33,6 +37,7 @@ class LyricsPresentation extends ChangeNotifier {
     }
     this.visible = visible;
     this.title = title;
+    this.note = note;
     this.raw = raw;
     this.fetching = fetching;
     this.notFound = notFound;
@@ -45,6 +50,7 @@ class LyricsStage extends StatelessWidget {
   const LyricsStage({
     super.key,
     required this.title,
+    this.note,
     required this.raw,
     required this.fetching,
     required this.notFound,
@@ -52,6 +58,7 @@ class LyricsStage extends StatelessWidget {
   });
 
   final String title;
+  final String? note;
   final String? raw;
   final bool fetching;
   final bool notFound;
@@ -65,13 +72,10 @@ class LyricsStage extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _Header(title: title, onClose: onClose),
+          _Header(title: title, note: note, onClose: onClose),
           Expanded(
             child: lines.isEmpty
-                ? _EmptyLyrics(
-                    fetching: fetching,
-                    notFound: notFound,
-                  )
+                ? _EmptyLyrics(fetching: fetching, notFound: notFound)
                 : _LyricScroller(lines: lines),
           ),
         ],
@@ -81,9 +85,10 @@ class LyricsStage extends StatelessWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.title, required this.onClose});
+  const _Header({required this.title, this.note, required this.onClose});
 
   final String title;
+  final String? note;
   final VoidCallback onClose;
 
   @override
@@ -106,11 +111,10 @@ class _Header extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
+                TrackTitleLine(
+                  title: title,
+                  note: note,
+                  centered: true,
                   style: GoogleFonts.syne(
                     color: AppTheme.paper,
                     fontSize: 15,
@@ -146,8 +150,8 @@ class _EmptyLyrics extends StatelessWidget {
     final message = fetching
         ? 'Ищем текст на LRCLIB…'
         : notFound
-            ? 'Текст не найден'
-            : 'Текста нет';
+        ? 'Текст не найден'
+        : 'Текста нет';
     return Center(
       child: fetching
           ? Column(
@@ -253,58 +257,47 @@ class _LyricScrollerState extends State<_LyricScroller> {
 
     final wide = MediaQuery.sizeOf(context).width >= 720;
 
-    return RawScrollbar(
+    return Scrollbar(
       controller: _scroll,
-      thumbVisibility: true,
-      interactive: true,
-      scrollbarOrientation: ScrollbarOrientation.right,
-      thickness: 8,
-      radius: const Radius.circular(8),
-      thumbColor: AppTheme.paperMuted.withValues(alpha: 0.55),
-      crossAxisMargin: 2,
-      mainAxisMargin: 8,
-      padding: EdgeInsets.zero,
-      child: ShaderMask(
-        blendMode: BlendMode.dstIn,
-        shaderCallback: (rect) {
-          return const LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Colors.transparent,
-              Colors.white,
-              Colors.white,
-              Colors.transparent,
-            ],
-            stops: [0.0, 0.14, 0.78, 1.0],
-          ).createShader(rect);
-        },
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final pad = constraints.maxHeight * 0.34;
-            // Right inset keeps lines clear of the volume capsule,
-            // which opens upward from the player into this stage.
-            return SingleChildScrollView(
-              controller: _scroll,
-              padding: EdgeInsets.fromLTRB(
-                wide ? 72 : 28,
-                pad,
-                96,
-                pad,
-              ),
-              child: Column(
-                children: [
-                  for (var i = 0; i < widget.lines.length; i++)
-                    _Line(
-                      key: _keys[i],
-                      text: widget.lines[i].text,
-                      role: _role(i, active, synced),
-                      wide: wide,
-                    ),
-                ],
-              ),
-            );
+      child: ScrollConfiguration(
+        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+        child: ShaderMask(
+          blendMode: BlendMode.dstIn,
+          shaderCallback: (rect) {
+            return const LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.transparent,
+                Colors.white,
+                Colors.white,
+                Colors.transparent,
+              ],
+              stops: [0.0, 0.14, 0.78, 1.0],
+            ).createShader(rect);
           },
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final pad = constraints.maxHeight * 0.34;
+              // Right inset keeps lines clear of the volume capsule,
+              // which opens upward from the player into this stage.
+              return SingleChildScrollView(
+                controller: _scroll,
+                padding: EdgeInsets.fromLTRB(wide ? 72 : 28, pad, 96, pad),
+                child: Column(
+                  children: [
+                    for (var i = 0; i < widget.lines.length; i++)
+                      _Line(
+                        key: _keys[i],
+                        text: widget.lines[i].text,
+                        role: _role(i, active, synced),
+                        wide: wide,
+                      ),
+                  ],
+                ),
+              );
+            },
+          ),
         ),
       ),
     );
@@ -338,44 +331,42 @@ class _Line extends StatelessWidget {
   Widget build(BuildContext context) {
     final style = switch (role) {
       _LineRole.current => GoogleFonts.figtree(
-          color: AppTheme.paper,
-          fontSize: wide ? 40 : 30,
-          fontWeight: FontWeight.w700,
-          height: 1.2,
-        ),
+        color: AppTheme.paper,
+        fontSize: wide ? 40 : 30,
+        fontWeight: FontWeight.w700,
+        height: 1.2,
+      ),
       _LineRole.next => GoogleFonts.figtree(
-          color: AppTheme.paper.withValues(alpha: 0.55),
-          fontSize: wide ? 26 : 20,
-          fontWeight: FontWeight.w600,
-          height: 1.3,
-        ),
+        color: AppTheme.paper.withValues(alpha: 0.55),
+        fontSize: wide ? 26 : 20,
+        fontWeight: FontWeight.w600,
+        height: 1.3,
+      ),
       _LineRole.later => GoogleFonts.figtree(
-          color: AppTheme.paper.withValues(alpha: 0.28),
-          fontSize: wide ? 24 : 18,
-          fontWeight: FontWeight.w500,
-          height: 1.3,
-        ),
+        color: AppTheme.paper.withValues(alpha: 0.28),
+        fontSize: wide ? 24 : 18,
+        fontWeight: FontWeight.w500,
+        height: 1.3,
+      ),
       _LineRole.past => GoogleFonts.figtree(
-          color: AppTheme.paper.withValues(alpha: 0.22),
-          fontSize: wide ? 22 : 17,
-          fontWeight: FontWeight.w500,
-          height: 1.3,
-        ),
+        color: AppTheme.paper.withValues(alpha: 0.22),
+        fontSize: wide ? 22 : 17,
+        fontWeight: FontWeight.w500,
+        height: 1.3,
+      ),
       _LineRole.plain => GoogleFonts.figtree(
-          color: AppTheme.paper,
-          fontSize: wide ? 32 : 24,
-          fontWeight: FontWeight.w600,
-          height: 1.35,
-        ),
+        color: AppTheme.paper,
+        fontSize: wide ? 32 : 24,
+        fontWeight: FontWeight.w600,
+        height: 1.35,
+      ),
     };
 
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: role == _LineRole.current ? 14 : 10),
-      child: Text(
-        text,
-        textAlign: TextAlign.center,
-        style: style,
+      padding: EdgeInsets.symmetric(
+        vertical: role == _LineRole.current ? 14 : 10,
       ),
+      child: Text(text, textAlign: TextAlign.center, style: style),
     );
   }
 }

@@ -13,6 +13,7 @@ class Track {
     required this.genre,
     this.albumArtist,
     this.producer,
+    this.note,
     this.lyrics,
     this.year,
     this.trackNumber,
@@ -27,24 +28,33 @@ class Track {
 
   final String trackKey;
   final String title;
+
   /// Full artist tag, e.g. "Artist A, Artist B".
   final String artist;
   final String album;
   final String genre;
   final String? albumArtist;
   final String? producer;
+
+  /// Short label shown beside the title. Empty does not block «Метаданные готовы».
+  final String? note;
   final String? lyrics;
   final int? year;
+
   /// Track number on the album (TRCK).
   final int? trackNumber;
+
   /// Total tracks on the album / disc.
   final int? trackTotal;
+
   /// Disc / CD number (TPOS).
   final int? discNumber;
   final int? durationMs;
   final String? coverPath;
+
   /// Soft-delete timestamp; non-null means the track lives only in Корзина.
   final DateTime? trashedAt;
+
   /// When the track first appeared in the library (scan).
   final DateTime? addedAt;
   final List<String> filePaths;
@@ -58,8 +68,7 @@ class Track {
     return DateTime.now().difference(at) < const Duration(days: 7);
   }
 
-  String? get primaryPath =>
-      filePaths.isEmpty ? null : filePaths.first;
+  String? get primaryPath => filePaths.isEmpty ? null : filePaths.first;
 
   /// Individual artists (comma / feat.).
   List<String> get artists => splitArtists(artist);
@@ -71,6 +80,13 @@ class Track {
   }
 
   String get displayTitle => metaFieldText(title);
+
+  /// Visible note badge, or null when the tag is empty.
+  String? get displayNote {
+    final raw = note?.trim() ?? '';
+    if (raw.isEmpty || isBlankMeta(raw)) return null;
+    return raw;
+  }
 
   String get displayGenre => metaFieldText(genre);
 
@@ -87,6 +103,7 @@ class Track {
       artist,
       albumArtist ?? '',
       producer ?? '',
+      note ?? '',
       album,
       genre,
       lyrics ?? '',
@@ -114,6 +131,7 @@ class Track {
     String? genre,
     Object? albumArtist = _unset,
     Object? producer = _unset,
+    Object? note = _unset,
     Object? lyrics = _unset,
     Object? year = _unset,
     Object? trackNumber = _unset,
@@ -134,7 +152,10 @@ class Track {
       albumArtist: identical(albumArtist, _unset)
           ? this.albumArtist
           : albumArtist as String?,
-      producer: identical(producer, _unset) ? this.producer : producer as String?,
+      producer: identical(producer, _unset)
+          ? this.producer
+          : producer as String?,
+      note: identical(note, _unset) ? this.note : note as String?,
       lyrics: identical(lyrics, _unset) ? this.lyrics : lyrics as String?,
       year: identical(year, _unset) ? this.year : year as int?,
       trackNumber: identical(trackNumber, _unset)
@@ -153,9 +174,7 @@ class Track {
       trashedAt: identical(trashedAt, _unset)
           ? this.trashedAt
           : trashedAt as DateTime?,
-      addedAt: identical(addedAt, _unset)
-          ? this.addedAt
-          : addedAt as DateTime?,
+      addedAt: identical(addedAt, _unset) ? this.addedAt : addedAt as DateTime?,
       filePaths: filePaths ?? this.filePaths,
     );
   }
@@ -164,10 +183,7 @@ class Track {
 const Object _unset = Object();
 
 class ChartEntry {
-  const ChartEntry({
-    required this.track,
-    required this.playCount,
-  });
+  const ChartEntry({required this.track, required this.playCount});
 
   final Track track;
   final int playCount;

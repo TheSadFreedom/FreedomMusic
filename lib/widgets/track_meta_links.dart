@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/track.dart';
 import '../navigation/library_navigation.dart';
+import 'track_title_line.dart';
 
 /// Title → album page, artist → artist page.
 class TrackMetaLinks extends StatelessWidget {
@@ -28,18 +29,12 @@ class TrackMetaLinks extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        MouseRegion(
-          cursor: SystemMouseCursors.click,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => openAlbumForTrack(context, track),
-            child: Text(
-              track.displayTitle,
-              maxLines: maxTitleLines,
-              overflow: TextOverflow.ellipsis,
-              style: titleStyle,
-            ),
-          ),
+        TrackTitleLine(
+          title: track.displayTitle,
+          note: track.displayNote,
+          style: titleStyle,
+          maxLines: maxTitleLines,
+          onTap: () => openAlbumForTrack(context, track),
         ),
         if (showArtist) ...[
           const SizedBox(height: 2),
