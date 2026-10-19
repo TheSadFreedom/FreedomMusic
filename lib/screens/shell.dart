@@ -13,7 +13,9 @@ import '../utils/breakpoints.dart';
 import '../widgets/ambient_backdrop.dart';
 import '../widgets/app_title_bar.dart';
 import '../widgets/compact_player.dart';
+import '../widgets/kept_icons.dart';
 import 'artists_screen.dart';
+import 'calendar_screen.dart';
 import 'chart_screen.dart';
 import 'home_screen.dart';
 import 'playlists_screen.dart';
@@ -31,7 +33,7 @@ class _AppShellState extends State<AppShell> {
 
   /// Per-tab navigators so detail pages don't cover the mini player.
   final List<GlobalKey<NavigatorState>> _navKeys = List.generate(
-    6,
+    7,
     (_) => GlobalKey<NavigatorState>(),
   );
 
@@ -72,6 +74,12 @@ class _AppShellState extends State<AppShell> {
       label: 'Чарт',
     ),
     _NavItem(
+      icon: Icons.calendar_month_outlined,
+      selectedIcon: Icons.calendar_month_outlined,
+      label: 'Календарь',
+      glyph: CalendarMonthGlyph(),
+    ),
+    _NavItem(
       icon: Icons.queue_music_outlined,
       selectedIcon: Icons.queue_music,
       label: 'Плейлисты',
@@ -83,8 +91,8 @@ class _AppShellState extends State<AppShell> {
     ),
   ];
 
-  static const _topCount = 5;
-  static const _settingsIndex = 5;
+  static const _topCount = 6;
+  static const _settingsIndex = 6;
 
   Widget _tabRoot(int index) {
     final page = switch (index) {
@@ -92,7 +100,8 @@ class _AppShellState extends State<AppShell> {
       1 => const ArtistsScreen(),
       2 => const ArtistsScreen(producers: true),
       3 => const ChartScreen(),
-      4 => const PlaylistsScreen(),
+      4 => const CalendarScreen(),
+      5 => const PlaylistsScreen(),
       _ => const SettingsScreen(),
     };
 
@@ -105,11 +114,13 @@ class _AppShellState extends State<AppShell> {
               1 => const Color(0xFF3D6B8B),
               2 => const Color(0xFF6B8B3D),
               3 => const Color(0xFF8B6B3D),
-              4 => const Color(0xFF5A3A6E),
+              4 => const Color(0xFF3D6E8B),
+              5 => const Color(0xFF5A3A6E),
               _ => AppTheme.moss,
             },
             secondary: switch (index) {
-              4 => const Color(0xFF3D2A5C),
+              5 => const Color(0xFF3D2A5C),
+              4 => const Color(0xFF2A4A5C),
               3 => const Color(0xFF5A3A2A),
               2 => const Color(0xFF3A4A2A),
               _ => const Color(0xFF2A4A5C),
@@ -258,8 +269,8 @@ class _AppShellState extends State<AppShell> {
                 destinations: [
                   for (final item in _navItems)
                     NavigationDestination(
-                      icon: Icon(item.icon),
-                      selectedIcon: Icon(item.selectedIcon),
+                      icon: item.glyph ?? Icon(item.icon),
+                      selectedIcon: item.glyph ?? Icon(item.selectedIcon),
                       label: item.label,
                     ),
                 ],
@@ -276,11 +287,15 @@ class _NavItem {
     required this.icon,
     required this.selectedIcon,
     required this.label,
+    this.glyph,
   });
 
   final IconData icon;
   final IconData selectedIcon;
   final String label;
+
+  /// Survives release icon tree-shaking. A plain [IconData] field does not.
+  final Widget? glyph;
 }
 
 class _SideRail extends StatelessWidget {
@@ -373,10 +388,14 @@ class _RailButton extends StatelessWidget {
             child: SizedBox(
               width: size,
               height: size,
-              child: Icon(
-                selected ? item.selectedIcon : item.icon,
-                color: color,
-                size: 24,
+              child: IconTheme(
+                data: IconThemeData(color: color, size: 24),
+                child: item.glyph ??
+                    Icon(
+                      selected ? item.selectedIcon : item.icon,
+                      color: color,
+                      size: 24,
+                    ),
               ),
             ),
           ),

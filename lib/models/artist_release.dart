@@ -377,6 +377,117 @@ ArtistRelease _releaseFromTracks(List<Track> tracks, {required String? credit}) 
   );
 }
 
+class ReleaseCalendarSection {
+  const ReleaseCalendarSection({required this.year, required this.releases});
+
+  /// Null is the «Без года» group and stays last.
+  final int? year;
+  final List<ArtistRelease> releases;
+}
+
+/// Every named album, EP, and single in the library, newest year first.
+/// A blank album title stays its own single and is not grouped with others.
+List<ReleaseCalendarSection> buildReleaseCalendar(
+  List<Track> tracks, {
+  required String Function(String name) cardName,
+}) {
+  final named = <String, List<Track>>{};
+  final loose = <Track>[];
+  for (final track in tracks) {
+    if (track.isTrashed) continue;
+    final album = track.displayAlbum.trim();
+    if (album.isEmpty || album.toLowerCase() == 'unknown') {
+      loose.add(track);
+      continue;
+    }
+    final key =
+        '${album.toLowerCase()}\u0001${_calendarOwnerKey(track, cardName)}';
+    named.putIfAbsent(key, () => []).add(track);
+  }
+
+  final releases = <ArtistRelease>[
+    for (final group in named.values)
+      _releaseFromTracks(
+        group,
+        credit: _calendarOwnerLine(group, cardName),
+      ),
+    for (final track in loose) _looseSingle(track, cardName),
+  ];
+
+  final byYear = <int?, List<ArtistRelease>>{};
+  for (final release in releases) {
+    final year = (release.year != null && release.year! > 0) ? release.year : null;
+    byYear.putIfAbsent(year, () => []).add(release);
+  }
+  for (final list in byYear.values) {
+    list.sort((a, b) {
+      final byCount = b.tracks.length.compareTo(a.tracks.length);
+      if (byCount != 0) return byCount;
+      return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+    });
+  }
+
+  final years = byYear.keys.whereType<int>().toList()
+    ..sort((a, b) => b.compareTo(a));
+  return [
+    for (final year in years)
+      ReleaseCalendarSection(year: year, releases: byYear[year]!),
+    if (byYear.containsKey(null))
+      ReleaseCalendarSection(year: null, releases: byYear[null]!),
+  ];
+}
+
+String _calendarOwnerKey(Track track, String Function(String name) cardName) {
+  final names = _calendarOwnerNames([track], cardName).map((name) {
+    return name.toLowerCase();
+  }).toList()
+    ..sort();
+  return names.join('\u0002');
+}
+
+String _calendarOwnerLine(
+  List<Track> tracks,
+  String Function(String name) cardName,
+) {
+  return _calendarOwnerNames(tracks, cardName).join(', ');
+}
+
+List<String> _calendarOwnerNames(
+  List<Track> tracks,
+  String Function(String name) cardName,
+) {
+  final names = <String>[];
+  final seen = <String>{};
+  for (final track in tracks) {
+    final tagged = _owners(track);
+    final raw = tagged.isNotEmpty ? tagged : track.artists;
+    for (final name in raw) {
+      final card = cardName(name).trim();
+      final key = card.toLowerCase();
+      if (key.isEmpty || key == 'unknown' || !seen.add(key)) continue;
+      names.add(card);
+    }
+  }
+  return names;
+}
+
+ArtistRelease _looseSingle(
+  Track track,
+  String Function(String name) cardName,
+) {
+  final title = track.displayTitle.trim();
+  final year = track.year;
+  final cover = track.coverPath;
+  return ArtistRelease(
+    title: title.isEmpty ? 'Без названия' : title,
+    tracks: [track],
+    kind: ReleaseKind.single,
+    year: (year != null && year > 0) ? year : null,
+    coverPath: (cover != null && cover.isNotEmpty) ? cover : null,
+    credit: _calendarOwnerLine([track], cardName),
+  );
+}
+
 /// Newest year first; missing / non-positive years go last.
 int compareReleasesByYearDesc(ArtistRelease a, ArtistRelease b) {
   final ay = (a.year != null && a.year! > 0) ? a.year! : -1;

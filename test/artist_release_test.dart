@@ -11,6 +11,7 @@ Track _track({
   int? number,
   int? trackTotal,
   String? coverPath,
+  int? year,
 }) {
   return Track(
     trackKey: key,
@@ -22,6 +23,7 @@ Track _track({
     trackNumber: number,
     trackTotal: trackTotal,
     coverPath: coverPath,
+    year: year,
   );
 }
 
@@ -282,5 +284,83 @@ void main() {
       releaseCoverKey(release('Огонь', [first])),
       isNot(releaseCoverKey(release('Огонь', [other]))),
     );
+  });
+
+  test('calendar groups every release by year', () {
+    String card(String name) => name;
+    final sections = buildReleaseCalendar(
+      [
+        _track(
+          key: 'a1',
+          title: 'Первый',
+          artist: 'A',
+          album: 'Альбом',
+          albumArtist: 'A',
+          year: 2020,
+          trackTotal: 10,
+        ),
+        _track(
+          key: 'a2',
+          title: 'Второй',
+          artist: 'A',
+          album: 'Альбом',
+          albumArtist: 'A',
+          year: 2020,
+          trackTotal: 10,
+        ),
+        _track(
+          key: 'b',
+          title: 'Чужой',
+          artist: 'B',
+          album: 'Альбом',
+          albumArtist: 'B',
+          year: 2024,
+          trackTotal: 10,
+        ),
+        _track(
+          key: 'b2',
+          title: 'Ещё трек',
+          artist: 'B',
+          album: 'Альбом',
+          albumArtist: 'B',
+          year: 2024,
+          trackTotal: 10,
+        ),
+        _track(
+          key: 's0',
+          title: 'Ааа',
+          artist: 'A',
+          album: 'Unknown',
+          year: 2024,
+        ),
+        _track(
+          key: 's1',
+          title: 'Сингл',
+          artist: 'A',
+          album: 'Unknown',
+          year: 2024,
+        ),
+        _track(
+          key: 's2',
+          title: 'Ещё',
+          artist: 'A',
+          album: '',
+        ),
+      ],
+      cardName: card,
+    );
+
+    expect(sections.map((section) => section.year), [2024, 2020, null]);
+    final newest = sections.first.releases;
+    expect(newest.map((release) => release.title), ['Альбом', 'Ааа', 'Сингл']);
+    expect(newest.first.tracks, hasLength(2));
+    expect(newest.first.credit, 'B');
+    expect(newest.first.kind, ReleaseKind.album);
+    final album = sections[1].releases.single;
+    expect(album.tracks, hasLength(2));
+    expect(album.credit, 'A');
+    final undated = sections.last.releases.single;
+    expect(undated.title, 'Ещё');
+    expect(undated.kind, ReleaseKind.single);
   });
 }

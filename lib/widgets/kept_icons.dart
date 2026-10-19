@@ -138,6 +138,15 @@ class DeleteOutlineRoundedGlyph extends StatelessWidget {
   }
 }
 
+class CalendarMonthGlyph extends StatelessWidget {
+  const CalendarMonthGlyph({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Icon(Icons.calendar_month_outlined);
+  }
+}
+
 class QueueMusicGlyph extends StatelessWidget {
   const QueueMusicGlyph({super.key});
 
