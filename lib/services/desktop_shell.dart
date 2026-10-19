@@ -160,6 +160,36 @@ class DesktopShell extends ChangeNotifier with WindowListener {
     notifyListeners();
   }
 
+  /// Keeps the compact window locked, but tall enough for an inline panel.
+  /// If the extra height would leave the screen, the window shifts up.
+  Future<void> resizeCompact(Size size, {required Rect workArea}) async {
+    if (!_compactMode) return;
+    final pos = await windowManager.getPosition();
+    var top = pos.dy;
+    var left = pos.dx;
+    final maxTop = workArea.bottom - size.height;
+    if (top > maxTop) top = maxTop;
+    if (top < workArea.top) top = workArea.top;
+    final maxLeft = workArea.right - size.width;
+    if (left > maxLeft) left = maxLeft;
+    if (left < workArea.left) left = workArea.left;
+
+    final current = await windowManager.getSize();
+    final growing = size.width > current.width + 0.5 ||
+        size.height > current.height + 0.5;
+    if (growing) {
+      await windowManager.setMaximumSize(size);
+      await windowManager.setMinimumSize(size);
+    } else {
+      await windowManager.setMinimumSize(size);
+      await windowManager.setMaximumSize(size);
+    }
+    await windowManager.setSize(size);
+    if ((top - pos.dy).abs() > 0.5 || (left - pos.dx).abs() > 0.5) {
+      await windowManager.setPosition(Offset(left, top));
+    }
+  }
+
   Future<void> exitCompactMode() async {
     if (!_compactMode) return;
 
