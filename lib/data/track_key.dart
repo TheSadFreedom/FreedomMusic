@@ -76,17 +76,21 @@ String normalizeArtistsForKey(String? raw) {
 }
 
 /// Logical track identity from metadata (not file path).
-/// Same artists + title => one track (album / duration do not matter).
+/// Same artists + title + note => one track. A blank note stays out of the key,
+/// so «Artist - Title» and «Artist - Title - Note» are different tracks.
 /// Artist order in the tag does not matter ("A, B" == "B, A").
 String buildTrackKey({
   required String artist,
   required String title,
+  String? note,
 }) {
-  final payload = [
+  final parts = [
     normalizeArtistsForKey(artist),
     normalizeTag(title),
-  ].join('|');
-  return sha1.convert(utf8.encode(payload)).toString();
+  ];
+  final label = metaFieldText(note);
+  if (label.isNotEmpty) parts.add(normalizeTag(label));
+  return sha1.convert(utf8.encode(parts.join('|'))).toString();
 }
 
 /// [aliasByNorm] maps `normalizeTag(oldName)` → preferred display name.

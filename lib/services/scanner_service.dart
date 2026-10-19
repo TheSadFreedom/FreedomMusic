@@ -193,7 +193,11 @@ class ScannerService {
           continue;
         }
         final updated = track.copyWith(
-          trackKey: buildTrackKey(artist: artist, title: track.title),
+          trackKey: buildTrackKey(
+            artist: artist,
+            title: track.title,
+            note: track.note,
+          ),
           artist: artist,
           albumArtist: albumArtist,
         );
@@ -233,7 +237,7 @@ class ScannerService {
       final trackNumber = meta.trackNumber;
       final discNumber = meta.discNumber;
 
-      final trackKey = buildTrackKey(artist: artist, title: title);
+      final trackKey = buildTrackKey(artist: artist, title: title, note: note);
 
       String? coverPath;
       final pictures = meta.pictures;

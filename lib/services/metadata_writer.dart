@@ -125,7 +125,7 @@ class MetadataWriter {
       );
     }
 
-    final newKey = buildTrackKey(artist: artist, title: title);
+    final newKey = buildTrackKey(artist: artist, title: title, note: note);
 
     String? coverPath = track.coverPath;
     if (draft.removeCover) {
