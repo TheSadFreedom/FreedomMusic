@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/app_theme.dart';
 
@@ -25,68 +24,44 @@ class TrackTitleLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final label = note?.trim() ?? '';
-    final text = Text(
+    final base = style ?? const TextStyle(color: AppTheme.paper);
+    final titleText = Text(
       title,
       maxLines: maxLines,
       overflow: TextOverflow.ellipsis,
       textAlign: centered ? TextAlign.center : TextAlign.start,
-      style: style,
+      style: base,
     );
     final titleWidget = onTap == null
-        ? text
+        ? titleText
         : MouseRegion(
             cursor: SystemMouseCursors.click,
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: onTap,
-              child: text,
+              child: titleText,
             ),
           );
     if (label.isEmpty) return titleWidget;
     final line = Row(
       mainAxisSize: centered ? MainAxisSize.min : MainAxisSize.max,
-      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Flexible(child: titleWidget),
-        const SizedBox(width: 8),
+        const SizedBox(width: 6),
         ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 140),
-          child: TrackNoteBadge(label),
+          constraints: const BoxConstraints(maxWidth: 160),
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: base.copyWith(
+              color: (base.color ?? AppTheme.paper).withValues(alpha: 0.45),
+            ),
+          ),
         ),
       ],
     );
     if (!centered) return line;
     return Center(child: line);
-  }
-}
-
-class TrackNoteBadge extends StatelessWidget {
-  const TrackNoteBadge(this.label, {super.key});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-        child: Text(
-          label,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: GoogleFonts.figtree(
-            color: AppTheme.paper,
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            height: 1.1,
-          ),
-        ),
-      ),
-    );
   }
 }
