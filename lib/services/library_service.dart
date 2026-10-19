@@ -1597,6 +1597,7 @@ class LibraryService extends ChangeNotifier {
 
   Future<void> _evictCover(String? path) async {
     if (path == null || path.isEmpty) return;
+    forgetCoverFingerprint(path);
     try {
       await FileImage(File(path)).evict();
     } catch (_) {}
@@ -2026,6 +2027,12 @@ class LibraryService extends ChangeNotifier {
   List<String> playlistMosaic(int playlistId) =>
       _mosaicCache[playlistId] ?? const [];
 
+  /// Covers for a genre card. One path, or four cells.
+  List<String> genreMosaic(String genre) =>
+      _genreMosaicCache[genre] ?? const [];
+
+  final Map<String, List<String>> _genreMosaicCache = {};
+
   Future<void> _refreshMosaics() async {
     final next = <int, List<String>>{};
     final byKey = {for (final track in _tracks) track.trackKey: track};
@@ -2037,9 +2044,28 @@ class LibraryService extends ChangeNotifier {
       next[playlist.id] = pickPlaylistMosaic(
         [for (final key in keys) byKey[key]?.coverPath],
         seed: playlist.id,
+        identity: coverFingerprint,
       );
     }
     _mosaicCache = next;
+
+    final byGenre = <String, List<String?>>{};
+    for (final track in _tracks) {
+      final genre = track.displayGenre;
+      if (genre.isEmpty) continue;
+      byGenre.putIfAbsent(genre, () => []).add(track.coverPath);
+    }
+    final genres = <String, List<String>>{};
+    for (final entry in byGenre.entries) {
+      genres[entry.key] = pickPlaylistMosaic(
+        entry.value,
+        seed: stableSeed(entry.key),
+        identity: coverFingerprint,
+      );
+    }
+    _genreMosaicCache
+      ..clear()
+      ..addAll(genres);
   }
 
   Future<List<Track>> playlistTracks(int id) async {

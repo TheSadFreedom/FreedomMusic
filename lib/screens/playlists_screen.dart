@@ -202,19 +202,14 @@ class PlaylistsScreen extends StatelessWidget {
     String name,
     List<Track> tracks,
   ) {
-    String? cover;
-    for (final track in tracks) {
-      final path = track.coverPath;
-      if (path != null && path.isNotEmpty) {
-        cover = path;
-        break;
-      }
-    }
+    final mosaic = context.read<LibraryService>().genreMosaic(name);
+    final single = mosaic.length == 1 ? mosaic.first : null;
     return _CoverItem(
       title: name,
       kind: 'Жанр',
       meta: _tracksLabel(tracks.length),
-      coverPath: cover,
+      coverPath: single,
+      mosaic: mosaic.length > 1 ? mosaic : const [],
       icon: Icons.library_music,
       iconColor: AppTheme.mossBright,
       onOpen: () {
@@ -359,6 +354,7 @@ class _CoverItem {
     required this.meta,
     required this.onOpen,
     this.coverPath,
+    this.mosaic = const [],
     this.playlistId,
     this.icon,
     this.iconColor,
@@ -371,6 +367,7 @@ class _CoverItem {
   final String kind;
   final String meta;
   final String? coverPath;
+  final List<String> mosaic;
   final int? playlistId;
   final IconData? icon;
   final Color? iconColor;
@@ -571,6 +568,8 @@ class _CoverCard extends StatelessWidget {
     Widget cover;
     if (path != null && File(path).existsSync()) {
       cover = Image.file(File(path), fit: BoxFit.cover);
+    } else if (item.mosaic.isNotEmpty) {
+      cover = PlaylistCoverMosaic(paths: item.mosaic);
     } else if (systemKind != null) {
       cover = _SystemCover(kind: systemKind);
     } else {

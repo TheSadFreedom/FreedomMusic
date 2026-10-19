@@ -25,7 +25,8 @@ class PlaylistMosaicLoader extends StatelessWidget {
   }
 }
 
-/// Two-by-two collage. Fewer than four covers leave the spare cells empty.
+/// One image, or a two-by-two grid. Two or three different covers are repeated
+/// so the grid stays full.
 class PlaylistCoverMosaic extends StatelessWidget {
   const PlaylistCoverMosaic({super.key, required this.paths});
 
@@ -35,29 +36,22 @@ class PlaylistCoverMosaic extends StatelessWidget {
   Widget build(BuildContext context) {
     if (paths.isEmpty) return const ColoredBox(color: AppTheme.inkLift);
     if (paths.length == 1) return _image(paths.first);
-    if (paths.length == 2) {
-      return Row(
-        children: [
-          _cell(paths[0]),
-          _cell(paths[1]),
-        ],
-      );
-    }
+    final cells = [for (var i = 0; i < 4; i++) paths[i % paths.length]];
     return Column(
       children: [
         Expanded(
           child: Row(
             children: [
-              _cell(paths[0]),
-              _cell(paths[1]),
+              _cell(cells[0]),
+              _cell(cells[1]),
             ],
           ),
         ),
         Expanded(
           child: Row(
             children: [
-              _cell(paths[2]),
-              _cell(paths.length > 3 ? paths[3] : null),
+              _cell(cells[2]),
+              _cell(cells[3]),
             ],
           ),
         ),
