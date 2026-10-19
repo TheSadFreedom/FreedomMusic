@@ -59,10 +59,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         content: Text(
           'Счётчики и история прослушиваний будут удалены. '
           'Чарт начнётся с нуля. Плейлисты и метаданные треков не изменятся.',
-          style: GoogleFonts.figtree(
-            color: AppTheme.paperMuted,
-            height: 1.45,
-          ),
+          style: GoogleFonts.figtree(color: AppTheme.paperMuted, height: 1.45),
         ),
         actions: [
           TextButton(
@@ -152,10 +149,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           'Текущие плейлисты, прослушивания, фото артистов, '
           'обложки плейлистов и снимки чарта будут заменены данными из файла. '
           'Метаданные треков и файлы music не изменятся.',
-          style: GoogleFonts.figtree(
-            color: AppTheme.paperMuted,
-            height: 1.45,
-          ),
+          style: GoogleFonts.figtree(color: AppTheme.paperMuted, height: 1.45),
         ),
         actions: [
           TextButton(
@@ -237,341 +231,328 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final photoProgress = library.artistPhotoProgress;
         final busy = scanning || _busyBackup || photosBusy;
         return Stack(
-      children: [
-        const Positioned.fill(
-          child: AmbientBackdrop(
-            accent: AppTheme.moss,
-            secondary: Color(0xFF24382F),
-          ),
-        ),
-        ListView(
-          padding: const EdgeInsets.only(bottom: 28),
           children: [
-            const ScreenTitle(title: 'Настройки'),
-            Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: _kContentMax),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      LayoutBuilder(
-                        builder: (context, constraints) {
-                          final sideBySide = constraints.maxWidth >= 680;
-                          final playback = _SectionCard(
-                            title: 'Воспроизведение',
-                            child: _Group(
-                              children: [
-                                _SettingSwitch(
-                                  title: 'Сканировать при запуске',
-                                  subtitle: 'Иначе скан только по кнопке.',
-                                  value: scanOnStartup,
-                                  onChanged: busy
-                                      ? null
-                                      : settings.setScanOnStartup,
-                                ),
-                                _SettingSwitch(
-                                  title: 'Музыка при запуске',
-                                  subtitle:
-                                      'Последний трек. Если его не было — случайный поток.',
-                                  value: playOnStartup,
-                                  onChanged: settings.setPlayOnStartup,
-                                ),
-                                _CrossfadeSlider(
-                                  value: crossfade,
-                                  onChanged: settings.setCrossfadeSeconds,
-                                ),
-                              ],
-                            ),
-                          );
-                          final folders = _SectionCard(
-                            title: 'Папки',
-                            child: _Group(
-                              children: [
-                                _PathRow(
-                                  label: 'music',
-                                  value: library.paths.musicDir,
-                                ),
-                                _PathRow(
-                                  label: 'База',
-                                  value: library.paths.databasePath,
-                                ),
-                              ],
-                            ),
-                          );
-                          if (!sideBySide) {
-                            return Column(
-                              children: [
-                                playback,
-                                const SizedBox(height: 12),
-                                folders,
-                              ],
-                            );
-                          }
-                          return Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(child: playback),
-                              const SizedBox(width: 12),
-                              Expanded(child: folders),
-                            ],
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      _SectionCard(
-                        title: 'Сканирование',
-                        child: _Group(
-                          children: [
-                            _SettingAction(
-                              icon: const FolderOpenGlyph(),
-                              title: 'Сканировать папку music',
-                              description: 'Сканирует папку полностью.',
-                              onPressed: busy
-                                  ? null
-                                  : () => library.scanLibrary(force: true),
-                            ),
-                            _SettingAction(
-                              icon: const FiberNewGlyph(),
-                              title: 'Поиск новых',
-                              description:
-                                  'Сканирует только новые файлы и не трогает то, что уже было добавлено.',
-                              onPressed: busy
-                                  ? null
-                                  : () => library.scanLibrary(newOnly: true),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      _SectionCard(
-                        title: 'Метаданные',
-                        child: _Group(
-                          children: [
-                            _SettingAction(
-                              icon: const ManageSearchGlyph(),
-                              title: 'Поиск пустых метаданных',
-                              description:
-                                  'Раскладывает треки по спискам: нехватает метаданных, Prod., жанра, текста. «Метаданные готовы» не требует жанр.',
-                              onPressed: busy
-                                  ? null
-                                  : () => library.reportEmptyMetadata(),
-                            ),
-                            _SettingAction(
-                              icon: const TravelExploreGlyph(),
-                              title: 'Заполнить пустые метаданные',
-                              description:
-                                  'Проходит все файлы, кроме списка «Метаданные готовы», и заполняет пустые поля.',
-                              onPressed: busy
-                                  ? null
-                                  : () => library.fillEmptyMetadata(),
-                            ),
-                            _SettingAction(
-                              icon: const HeadphonesGlyph(),
-                              title: 'Поиск метаданных продюсеров',
-                              description:
-                                  'Проходит все файлы, кроме «Метаданные готовы», и записывает только продюсера.',
-                              onPressed: busy
-                                  ? null
-                                  : () => library.fillMissingProducers(),
-                            ),
-                            _SettingAction(
-                              icon: const LyricsGlyph(),
-                              title: 'Поиск текстов',
-                              description:
-                                  'Ищет текст песни и записывает его в файл.',
-                              onPressed: busy
-                                  ? null
-                                  : () => library.fillMissingLyrics(),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      _SectionCard(
-                        title: 'Названия и фото',
-                        child: _Group(
-                          children: [
-                            _SettingAction(
-                              icon: const EditGlyph(),
-                              title: 'Фикс названий',
-                              description:
-                                  'Убирает в конце названия feat. и prod by, в том числе в скобках.',
-                              onPressed: busy
-                                  ? null
-                                  : () {
-                                      final player =
-                                          context.read<PlayerService>();
-                                      library.fixTitleCredits(
-                                        onUpdated: (updated, oldKey) {
-                                          player.syncTrack(
-                                            updated,
-                                            oldTrackKey: oldKey,
-                                          );
-                                        },
-                                      );
-                                    },
-                            ),
-                            _SettingAction(
-                              icon: const FacePhotoGlyph(),
-                              title: 'Поиск фотографий артистов',
-                              description:
-                                  'Ищет фото артистов. Ручные фото не перезаписываются.',
-                              onPressed: busy
-                                  ? null
-                                  : () => _refreshArtistPhotos(library),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (scanning ||
-                          progress != null ||
-                          photoProgress != null ||
-                          library.jobLog.isNotEmpty ||
-                          _photosMessage != null ||
-                          library.lastScanMessage != null) ...[
-                        const SizedBox(height: 12),
-                        _SectionCard(
-                          title: 'Ход работы',
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              if (scanning || progress != null)
-                                _JobProgress(
-                                  label: progress == null
-                                      ? 'Подготовка…'
-                                      : '${progress.processed} / ${progress.total}'
-                                          '${progress.currentFile != null ? ' — ${progress.currentFile}' : ''}',
-                                  value: progress?.ratio,
-                                  onStop: scanning ? library.cancelScan : null,
-                                ),
-                              if (photoProgress != null) ...[
-                                if (scanning || progress != null)
-                                  const SizedBox(height: 8),
-                                _JobProgress(
-                                  label:
-                                      '${photoProgress.done} / ${photoProgress.total}'
-                                      '${photoProgress.updated > 0 ? ' · сохранено ${photoProgress.updated}' : ''}'
-                                      '${photoProgress.current != null ? ' — ${photoProgress.current}' : ''}',
-                                  value: photoProgress.ratio,
-                                ),
-                              ],
-                              if (library.jobLog.isNotEmpty) ...[
-                                const SizedBox(height: 8),
-                                _JobLog(lines: library.jobLog),
-                              ],
-                              if (_photosMessage != null) ...[
-                                const SizedBox(height: 10),
-                                _StatusNote(text: _photosMessage!),
-                              ],
-                              if (library.lastScanMessage != null) ...[
-                                const SizedBox(height: 10),
-                                _StatusNote(text: library.lastScanMessage!),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 12),
-                      _SectionCard(
-                        title: 'Данные',
-                        subtitle:
-                            'Плейлисты, фото, история, объединения и выбранные обложки релизов. MP3 не входят.',
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            _Group(
-                              children: [
-                                _SettingAction(
-                                  icon: const UploadGlyph(),
-                                  title: 'Экспорт',
-                                  description:
-                                      'Архив плейлистов, фото, истории, объединений и обложек релизов.',
-                                  onPressed: busy
-                                      ? null
-                                      : () => _export(library),
-                                ),
-                                _SettingAction(
-                                  icon: const DownloadGlyph(),
-                                  title: 'Импорт',
-                                  description:
-                                      'Заменит данные приложения из архива.',
-                                  onPressed: busy
-                                      ? null
-                                      : () => _import(library),
-                                ),
-                                _SettingAction(
-                                  icon: const RestartGlyph(),
-                                  title: 'Сбросить',
-                                  description:
-                                      'Обнулить прослушивания. Плейлисты останутся.',
-                                  danger: true,
-                                  onPressed: busy
-                                      ? null
-                                      : () => _clearPlayCounts(library),
-                                ),
-                              ],
-                            ),
-                            if (_busyBackup) ...[
-                              const SizedBox(height: 10),
-                              Row(
-                                children: [
-                                  const SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: _kYellow,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Обработка архива…',
-                                    style: GoogleFonts.figtree(
-                                      color: AppTheme.paperMuted,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                            if (_backupMessage != null) ...[
-                              const SizedBox(height: 10),
-                              _StatusNote(text: _backupMessage!),
-                            ],
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Text(
-                        'Локальный плеер. Метаданные файла — источник правды о треке.',
-                        textAlign: TextAlign.center,
-                        style: GoogleFonts.figtree(
-                          color: AppTheme.paperMuted.withValues(alpha: 0.8),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+            const Positioned.fill(
+              child: AmbientBackdrop(
+                accent: AppTheme.moss,
+                secondary: Color(0xFF24382F),
               ),
             ),
+            ListView(
+              padding: const EdgeInsets.only(bottom: 28),
+              children: [
+                const ScreenTitle(title: 'Настройки'),
+                Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: _kContentMax),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              final sideBySide = constraints.maxWidth >= 680;
+                              final playback = _SectionCard(
+                                title: 'Воспроизведение',
+                                child: _Group(
+                                  children: [
+                                    _SettingSwitch(
+                                      title: 'Сканировать при запуске',
+                                      subtitle: 'Иначе скан только по кнопке.',
+                                      value: scanOnStartup,
+                                      onChanged: busy
+                                          ? null
+                                          : settings.setScanOnStartup,
+                                    ),
+                                    _SettingSwitch(
+                                      title: 'Музыка при запуске',
+                                      subtitle: 'Последний трек. Если его не было — случайный поток.',
+                                      value: playOnStartup,
+                                      onChanged: settings.setPlayOnStartup,
+                                    ),
+                                    _CrossfadeSlider(
+                                      value: crossfade,
+                                      onChanged: settings.setCrossfadeSeconds,
+                                    ),
+                                  ],
+                                ),
+                              );
+                              final folders = _SectionCard(
+                                title: 'Папки',
+                                child: _Group(
+                                  children: [
+                                    _PathRow(
+                                      label: 'music',
+                                      value: library.paths.musicDir,
+                                    ),
+                                    _PathRow(
+                                      label: 'База',
+                                      value: library.paths.databasePath,
+                                    ),
+                                  ],
+                                ),
+                              );
+                              if (!sideBySide) {
+                                return Column(
+                                  children: [
+                                    playback,
+                                    const SizedBox(height: 12),
+                                    folders,
+                                  ],
+                                );
+                              }
+                              return Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(child: playback),
+                                  const SizedBox(width: 12),
+                                  Expanded(child: folders),
+                                ],
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          _SectionCard(
+                            title: 'Сканирование',
+                            child: _Group(
+                              children: [
+                                _SettingAction(
+                                  icon: const FolderOpenGlyph(),
+                                  title: 'Сканировать папку music',
+                                  description: 'Сканирует папку полностью.',
+                                  onPressed: busy
+                                      ? null
+                                      : () => library.scanLibrary(force: true),
+                                ),
+                                _SettingAction(
+                                  icon: const FiberNewGlyph(),
+                                  title: 'Поиск новых',
+                                  description: 'Сканирует только новые файлы и не трогает то, что уже было добавлено.',
+                                  onPressed: busy
+                                      ? null
+                                      : () =>
+                                            library.scanLibrary(newOnly: true),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          _SectionCard(
+                            title: 'Метаданные',
+                            child: _Group(
+                              children: [
+                                _SettingAction(
+                                  icon: const ManageSearchGlyph(),
+                                  title: 'Поиск пустых метаданных',
+                                  description: 'Раскладывает треки по спискам: нехватает метаданных, Prod., жанра, текста. «Метаданные готовы» не требует жанр.',
+                                  onPressed: busy
+                                      ? null
+                                      : () => library.reportEmptyMetadata(),
+                                ),
+                                _SettingAction(
+                                  icon: const TravelExploreGlyph(),
+                                  title: 'Заполнить пустые метаданные',
+                                  description: 'Проходит все файлы, кроме списка «Метаданные готовы», и заполняет пустые поля.',
+                                  onPressed: busy
+                                      ? null
+                                      : () => library.fillEmptyMetadata(),
+                                ),
+                                _SettingAction(
+                                  icon: const HeadphonesGlyph(),
+                                  title: 'Поиск метаданных продюсеров',
+                                  description: 'Проходит все файлы, кроме «Метаданные готовы», и записывает только продюсера.',
+                                  onPressed: busy
+                                      ? null
+                                      : () => library.fillMissingProducers(),
+                                ),
+                                _SettingAction(
+                                  icon: const LyricsGlyph(),
+                                  title: 'Поиск текстов',
+                                  description: 'Ищет текст песни и записывает его в файл.',
+                                  onPressed: busy
+                                      ? null
+                                      : () => library.fillMissingLyrics(),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          _SectionCard(
+                            title: 'Названия и фото',
+                            child: _Group(
+                              children: [
+                                _SettingAction(
+                                  icon: const EditGlyph(),
+                                  title: 'Фикс названий',
+                                  description: 'Убирает в конце названия feat. и prod by, в том числе в скобках.',
+                                  onPressed: busy
+                                      ? null
+                                      : () {
+                                          final player = context
+                                              .read<PlayerService>();
+                                          library.fixTitleCredits(
+                                            onUpdated: (updated, oldKey) {
+                                              player.syncTrack(
+                                                updated,
+                                                oldTrackKey: oldKey,
+                                              );
+                                            },
+                                          );
+                                        },
+                                ),
+                                _SettingAction(
+                                  icon: const FacePhotoGlyph(),
+                                  title: 'Поиск фотографий артистов',
+                                  description: 'Ищет фото артистов. Ручные фото не перезаписываются.',
+                                  onPressed: busy
+                                      ? null
+                                      : () => _refreshArtistPhotos(library),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (scanning ||
+                              progress != null ||
+                              photoProgress != null ||
+                              library.jobLog.isNotEmpty ||
+                              _photosMessage != null ||
+                              library.lastScanMessage != null) ...[
+                            const SizedBox(height: 12),
+                            _SectionCard(
+                              title: 'Ход работы',
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  if (scanning || progress != null)
+                                    _JobProgress(
+                                      label: progress == null
+                                          ? 'Подготовка…'
+                                          : '${progress.processed} / ${progress.total}'
+                                                '${progress.currentFile != null ? ' — ${progress.currentFile}' : ''}',
+                                      value: progress?.ratio,
+                                      onStop: scanning
+                                          ? library.cancelScan
+                                          : null,
+                                    ),
+                                  if (photoProgress != null) ...[
+                                    if (scanning || progress != null)
+                                      const SizedBox(height: 8),
+                                    _JobProgress(
+                                      label:
+                                          '${photoProgress.done} / ${photoProgress.total}'
+                                          '${photoProgress.updated > 0 ? ' · сохранено ${photoProgress.updated}' : ''}'
+                                          '${photoProgress.current != null ? ' — ${photoProgress.current}' : ''}',
+                                      value: photoProgress.ratio,
+                                    ),
+                                  ],
+                                  if (library.jobLog.isNotEmpty) ...[
+                                    const SizedBox(height: 8),
+                                    _JobLog(lines: library.jobLog),
+                                  ],
+                                  if (_photosMessage != null) ...[
+                                    const SizedBox(height: 10),
+                                    _StatusNote(text: _photosMessage!),
+                                  ],
+                                  if (library.lastScanMessage != null) ...[
+                                    const SizedBox(height: 10),
+                                    _StatusNote(text: library.lastScanMessage!),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 12),
+                          _SectionCard(
+                            title: 'Данные',
+                            subtitle: 'Плейлисты, фото, история, объединения и выбранные обложки релизов. MP3 не входят.',
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                _Group(
+                                  children: [
+                                    _SettingAction(
+                                      icon: const UploadGlyph(),
+                                      title: 'Экспорт',
+                                      description: 'Архив плейлистов, фото, истории, объединений и обложек релизов.',
+                                      onPressed: busy
+                                          ? null
+                                          : () => _export(library),
+                                    ),
+                                    _SettingAction(
+                                      icon: const DownloadGlyph(),
+                                      title: 'Импорт',
+                                      description: 'Заменит данные приложения из архива.',
+                                      onPressed: busy
+                                          ? null
+                                          : () => _import(library),
+                                    ),
+                                    _SettingAction(
+                                      icon: const RestartGlyph(),
+                                      title: 'Сбросить',
+                                      description: 'Обнулить прослушивания. Плейлисты останутся.',
+                                      danger: true,
+                                      onPressed: busy
+                                          ? null
+                                          : () => _clearPlayCounts(library),
+                                    ),
+                                  ],
+                                ),
+                                if (_busyBackup) ...[
+                                  const SizedBox(height: 10),
+                                  Row(
+                                    children: [
+                                      const SizedBox(
+                                        width: 14,
+                                        height: 14,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: _kYellow,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Обработка архива…',
+                                        style: GoogleFonts.figtree(
+                                          color: AppTheme.paperMuted,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                                if (_backupMessage != null) ...[
+                                  const SizedBox(height: 10),
+                                  _StatusNote(text: _backupMessage!),
+                                ],
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          Text(
+                            'Локальный плеер. Метаданные файла — источник правды о треке.',
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.figtree(
+                              color: AppTheme.paperMuted.withValues(alpha: 0.8),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ],
-        ),
-      ],
-    );
+        );
       },
     );
   }
 }
 
 class _SectionCard extends StatelessWidget {
-  const _SectionCard({
-    required this.title,
-    required this.child,
-    this.subtitle,
-  });
+  const _SectionCard({required this.title, required this.child, this.subtitle});
 
   final String title;
   final String? subtitle;
@@ -660,67 +641,64 @@ class _PathRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 52,
-              child: Text(
-                label,
-                style: GoogleFonts.figtree(
-                  color: AppTheme.paperMuted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
+      padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 52,
+            child: Text(
+              label,
+              style: GoogleFonts.figtree(
+                color: AppTheme.paperMuted,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
               ),
             ),
-            Expanded(
-              child: SelectableText(
-                value,
-                maxLines: 1,
-                style: GoogleFonts.figtree(
-                  color: AppTheme.paper,
-                  fontSize: 12.5,
-                  height: 1.2,
-                ),
+          ),
+          Expanded(
+            child: SelectableText(
+              value,
+              maxLines: 1,
+              style: GoogleFonts.figtree(
+                color: AppTheme.paper,
+                fontSize: 12.5,
+                height: 1.2,
               ),
             ),
-            IconButton(
-              tooltip: 'Копировать',
-              visualDensity: VisualDensity.compact,
-              mouseCursor: SystemMouseCursors.click,
-              onPressed: () async {
-                await Clipboard.setData(ClipboardData(text: value));
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Скопировано',
-                      style: GoogleFonts.figtree(fontWeight: FontWeight.w600),
-                    ),
-                    behavior: SnackBarBehavior.floating,
-                    backgroundColor: AppTheme.inkLift,
-                    duration: const Duration(seconds: 1),
+          ),
+          IconButton(
+            tooltip: 'Копировать',
+            visualDensity: VisualDensity.compact,
+            mouseCursor: SystemMouseCursors.click,
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: value));
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Скопировано',
+                    style: GoogleFonts.figtree(fontWeight: FontWeight.w600),
                   ),
-                );
-              },
-              icon: Icon(
-                Icons.copy_rounded,
-                size: 18,
-                color: AppTheme.paperMuted.withValues(alpha: 0.9),
-              ),
+                  behavior: SnackBarBehavior.floating,
+                  backgroundColor: AppTheme.inkLift,
+                  duration: const Duration(seconds: 1),
+                ),
+              );
+            },
+            icon: Icon(
+              Icons.copy_rounded,
+              size: 18,
+              color: AppTheme.paperMuted.withValues(alpha: 0.9),
             ),
-          ],
-        ),
+          ),
+        ],
+      ),
     );
   }
 }
 
 class _CrossfadeSlider extends StatelessWidget {
-  const _CrossfadeSlider({
-    required this.value,
-    required this.onChanged,
-  });
+  const _CrossfadeSlider({required this.value, required this.onChanged});
 
   final int value;
   final ValueChanged<int> onChanged;
@@ -947,7 +925,8 @@ class _JobLogState extends State<_JobLog> {
   void didUpdateWidget(covariant _JobLog oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.lines.length == oldWidget.lines.length) return;
-    final stick = !_scroll.hasClients ||
+    final stick =
+        !_scroll.hasClients ||
         _scroll.position.maxScrollExtent - _scroll.offset < 64;
     if (!stick) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1014,20 +993,16 @@ class _JobLogState extends State<_JobLog> {
             const SizedBox(height: 8),
             SizedBox(
               height: 200,
-              child: Scrollbar(
+              child: ListView.separated(
                 controller: _scroll,
-                thumbVisibility: true,
-                child: ListView.separated(
-                  controller: _scroll,
-                  itemCount: widget.lines.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 6),
-                  itemBuilder: (context, index) {
-                    return _JobLogRow(
-                      entry: widget.lines[index],
-                      time: _clock.format(widget.lines[index].at),
-                    );
-                  },
-                ),
+                itemCount: widget.lines.length,
+                separatorBuilder: (_, _) => const SizedBox(height: 6),
+                itemBuilder: (context, index) {
+                  return _JobLogRow(
+                    entry: widget.lines[index],
+                    time: _clock.format(widget.lines[index].at),
+                  );
+                },
               ),
             ),
           ],
@@ -1178,11 +1153,7 @@ class _LogChip extends StatelessWidget {
 }
 
 class _JobProgress extends StatelessWidget {
-  const _JobProgress({
-    required this.label,
-    required this.value,
-    this.onStop,
-  });
+  const _JobProgress({required this.label, required this.value, this.onStop});
 
   final String label;
   final double? value;
@@ -1216,27 +1187,27 @@ class _JobProgress extends StatelessWidget {
                 ),
                 if (onStop != null)
                   TextButton(
-                      onPressed: onStop,
-                      style: TextButton.styleFrom(
-                        enabledMouseCursor: SystemMouseCursors.click,
-                        foregroundColor: AppTheme.ink,
-                        backgroundColor: _kYellow,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 8,
-                        ),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        textStyle: GoogleFonts.figtree(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 13,
-                        ),
+                    onPressed: onStop,
+                    style: TextButton.styleFrom(
+                      enabledMouseCursor: SystemMouseCursors.click,
+                      foregroundColor: AppTheme.ink,
+                      backgroundColor: _kYellow,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
                       ),
-                      child: const Text('Стоп'),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      textStyle: GoogleFonts.figtree(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                      ),
                     ),
+                    child: const Text('Стоп'),
+                  ),
               ],
             ),
             const SizedBox(height: 10),
@@ -1267,9 +1238,7 @@ class _StatusNote extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppTheme.moss.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: AppTheme.mossBright.withValues(alpha: 0.25),
-        ),
+        border: Border.all(color: AppTheme.mossBright.withValues(alpha: 0.25)),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),

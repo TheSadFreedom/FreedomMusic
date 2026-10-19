@@ -12,23 +12,24 @@ abstract final class AppTheme {
   static const paperMuted = Color(0xFFA8A297);
 
   static ThemeData dark() {
-    final base = ColorScheme.fromSeed(
-      seedColor: moss,
-      brightness: Brightness.dark,
-      surface: ink,
-      primary: mossBright,
-      secondary: lime,
-      tertiary: moss,
-    ).copyWith(
-      surface: ink,
-      surfaceContainerHighest: inkLift,
-      onSurface: paper,
-      onSurfaceVariant: paperMuted,
-      primary: mossBright,
-      onPrimary: ink,
-      secondary: lime,
-      onSecondary: ink,
-    );
+    final base =
+        ColorScheme.fromSeed(
+          seedColor: moss,
+          brightness: Brightness.dark,
+          surface: ink,
+          primary: mossBright,
+          secondary: lime,
+          tertiary: moss,
+        ).copyWith(
+          surface: ink,
+          surfaceContainerHighest: inkLift,
+          onSurface: paper,
+          onSurfaceVariant: paperMuted,
+          primary: mossBright,
+          onPrimary: ink,
+          secondary: lime,
+          onSecondary: ink,
+        );
 
     final display = GoogleFonts.syneTextTheme().apply(
       bodyColor: paper,
@@ -124,6 +125,25 @@ abstract final class AppTheme {
       ),
       sliderTheme: const SliderThemeData(
         mouseCursor: WidgetStateMouseCursor.clickable,
+      ),
+      scrollbarTheme: ScrollbarThemeData(
+        thickness: const WidgetStatePropertyAll(20),
+        thumbVisibility: const WidgetStatePropertyAll(true),
+        trackVisibility: const WidgetStatePropertyAll(true),
+        interactive: true,
+        radius: const Radius.circular(10),
+        minThumbLength: 84,
+        crossAxisMargin: 4,
+        mainAxisMargin: 6,
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.dragged) ||
+              states.contains(WidgetState.hovered)) {
+            return lime;
+          }
+          return paper.withValues(alpha: 0.72);
+        }),
+        trackColor: WidgetStatePropertyAll(paper.withValues(alpha: 0.1)),
+        trackBorderColor: const WidgetStatePropertyAll(Color(0x00000000)),
       ),
     );
   }
