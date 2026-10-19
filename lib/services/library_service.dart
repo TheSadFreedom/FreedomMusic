@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:path/path.dart' as p;
 
 import '../data/app_paths.dart';
@@ -13,6 +15,7 @@ import '../data/track_meta.dart';
 import '../models/artist_release.dart';
 import '../models/catalog_search.dart';
 import '../models/playlist.dart';
+import '../models/playlist_mosaic.dart';
 import '../models/track.dart';
 import '../utils/lyrics_format.dart';
 import 'artist_photo_service.dart';
@@ -93,6 +96,8 @@ class LibraryService extends ChangeNotifier {
 
   List<Track> _tracks = [];
   List<Playlist> _playlists = [];
+  Map<int, List<String>> _mosaicCache = {};
+  final Map<String, String> _trackKeyAlias = {};
 
   /// normalizeTag(alias) → artist-card display name.
   Map<String, String> _aliasToCard = {};
@@ -173,8 +178,10 @@ class LibraryService extends ChangeNotifier {
     await _db.syncTrashPlaylistMembership();
     await _db.syncNewPlaylistMembership();
     _tracks = await _db.getAllTracks();
+    _trackKeyAlias.clear();
     await _syncMetaPlaylists();
     _playlists = await _db.getPlaylists();
+    await _refreshMosaics();
     await _loadArtistAliases();
     _invalidateSearch();
     _error = null;
@@ -756,7 +763,7 @@ class LibraryService extends ChangeNotifier {
       while (!_cancelFill) {
         final track = await toSearch.take();
         if (track == null) return;
-        detail = 'Ищем на сайте: ${track.displayArtist} — ${track.displayTitle}';
+        detail = 'Ищем на сайте: ${_searchLabel(track)}';
         publish();
         final prepared = producersOnly
             ? await _lookupProducer(track)
@@ -838,6 +845,7 @@ class LibraryService extends ChangeNotifier {
     final hit = await _metaLookup.lookup(
       artist: track.artist,
       title: track.title,
+      note: track.displayNote,
     );
     final producer = hit?.producer?.trim();
     if (isBlankMeta(producer)) return null;
@@ -867,6 +875,12 @@ class LibraryService extends ChangeNotifier {
         track.discNumber == null ||
         track.discNumber! < 1 ||
         isBlankMeta(track.producer);
+  }
+
+  String _searchLabel(Track track) {
+    final note = track.displayNote;
+    final base = '${track.displayArtist} — ${track.displayTitle}';
+    return note == null ? base : '$base $note';
   }
 
   bool _canSearchMetadata(Track track) {
@@ -903,6 +917,7 @@ class LibraryService extends ChangeNotifier {
     final hit = await _metaLookup.lookup(
       artist: track.artist,
       title: track.title,
+      note: track.displayNote,
     );
 
     final newAlbum = (hit != null &&
@@ -1000,7 +1015,7 @@ class LibraryService extends ChangeNotifier {
         added: filled,
         updated: 0,
         skipped: 0,
-        currentFile: 'Ищем текст: ${track.displayArtist} — ${track.displayTitle}',
+        currentFile: 'Ищем текст: ${_searchLabel(track)}',
       );
       _paintJob();
     }
@@ -1568,8 +1583,85 @@ class LibraryService extends ChangeNotifier {
     return null;
   }
 
-  /// Set [refreshLibrary] to false during batch autofill — a full [reload]
-  /// after every file multiplies RAM (all tracks + lyrics + UI rebuilds).
+  /// The library copy of [track] after a metadata edit, including a new key.
+  Track resolveTrack(Track track) {
+    final byKey = trackByKey(track.trackKey);
+    if (byKey != null) return byKey;
+    final path = track.primaryPath;
+    if (path == null) return track;
+    for (final candidate in _tracks) {
+      if (candidate.filePaths.contains(path)) return candidate;
+    }
+    return track;
+  }
+
+  Future<void> _evictCover(String? path) async {
+    if (path == null || path.isEmpty) return;
+    try {
+      await FileImage(File(path)).evict();
+    } catch (_) {}
+  }
+
+  void _replaceTrack(String oldKey, Track updated) {
+    final next = <Track>[];
+    var placed = false;
+    for (final track in _tracks) {
+      if (track.trackKey == oldKey || track.trackKey == updated.trackKey) {
+        if (!placed) {
+          next.add(updated);
+          placed = true;
+        }
+        continue;
+      }
+      next.add(track);
+    }
+    if (!placed) next.add(updated);
+    _tracks = next;
+    if (oldKey == updated.trackKey) return;
+    _trackKeyAlias[oldKey] = updated.trackKey;
+    final rewired = <String, String>{};
+    for (final entry in _trackKeyAlias.entries) {
+      rewired[entry.key] =
+          entry.value == oldKey ? updated.trackKey : entry.value;
+    }
+    _trackKeyAlias
+      ..clear()
+      ..addAll(rewired);
+  }
+
+  /// Play count after a metadata edit changed the track key.
+  int playCountFor(Map<String, int> counts, String trackKey) {
+    final direct = counts[trackKey];
+    if (direct != null) return direct;
+    var best = 0;
+    var found = false;
+    for (final entry in _trackKeyAlias.entries) {
+      if (entry.value != trackKey) continue;
+      final value = counts[entry.key];
+      if (value == null) continue;
+      found = true;
+      if (value > best) best = value;
+    }
+    return found ? best : 0;
+  }
+
+  /// One UI refresh after a track edit or a finished album batch.
+  ///
+  /// The editor covers the shell, so a notify during the save can miss the
+  /// page underneath. A second notify after the next frame reaches it once
+  /// the editor has closed.
+  Future<void> publishMetadata() async {
+    await _refreshMosaics();
+    _invalidateSearch();
+    notifyListeners();
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      notifyListeners();
+    });
+    unawaited(_syncMetaPlaylists());
+  }
+
+  /// Set [refreshLibrary] to false during batch autofill — publishing the
+  /// library after every file rebuilds every open screen.
   Future<Track> saveTrackMetadata(
     Track track,
     MetadataDraft draft, {
@@ -1583,22 +1675,12 @@ class LibraryService extends ChangeNotifier {
       paths: _paths,
     );
     await _db.applyMetadataEdit(oldTrackKey: oldKey, updated: updated);
+    await _evictCover(track.coverPath);
+    await _evictCover(updated.coverPath);
+    _replaceTrack(oldKey, updated);
     if (refreshLibrary) {
-      await reload();
-      return _tracks.firstWhere(
-        (t) => t.trackKey == updated.trackKey,
-        orElse: () => updated,
-      );
-    }
-
-    final i = _tracks.indexWhere((t) => t.trackKey == oldKey);
-    if (i >= 0) {
-      _tracks[i] = updated;
-    } else if (oldKey != updated.trackKey) {
-      final j = _tracks.indexWhere((t) => t.trackKey == updated.trackKey);
-      if (j >= 0) _tracks[j] = updated;
-    }
-    if (notify) {
+      await publishMetadata();
+    } else if (notify) {
       _invalidateSearch();
       notifyListeners();
     }
@@ -1629,6 +1711,19 @@ class LibraryService extends ChangeNotifier {
     final pl = playlistById(id);
     if (pl == null || pl.isSystem) return;
     await _db.deletePlaylist(id);
+    await reload();
+  }
+
+  /// Moves every track from a user playlist into another, then deletes the source.
+  Future<void> movePlaylistTracks({
+    required int fromId,
+    required int toId,
+  }) async {
+    final source = playlistById(fromId);
+    final target = playlistById(toId);
+    if (source == null || target == null) return;
+    if (source.isSystem || target.isSystem || source.id == target.id) return;
+    await _db.movePlaylistTracks(fromId: fromId, toId: toId);
     await reload();
   }
 
@@ -1925,6 +2020,26 @@ class LibraryService extends ChangeNotifier {
   void dispose() {
     jobUi.dispose();
     super.dispose();
+  }
+
+  /// Stable random covers for a user playlist that has no chosen cover.
+  List<String> playlistMosaic(int playlistId) =>
+      _mosaicCache[playlistId] ?? const [];
+
+  Future<void> _refreshMosaics() async {
+    final next = <int, List<String>>{};
+    final byKey = {for (final track in _tracks) track.trackKey: track};
+    for (final playlist in _playlists) {
+      if (playlist.isSystem) continue;
+      final cover = playlist.coverPath;
+      if (cover != null && cover.isNotEmpty) continue;
+      final keys = await _db.getPlaylistTrackKeys(playlist.id);
+      next[playlist.id] = pickPlaylistMosaic(
+        [for (final key in keys) byKey[key]?.coverPath],
+        seed: playlist.id,
+      );
+    }
+    _mosaicCache = next;
   }
 
   Future<List<Track>> playlistTracks(int id) async {

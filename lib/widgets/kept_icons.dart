@@ -155,3 +155,12 @@ class QueueMusicGlyph extends StatelessWidget {
     return const Icon(Icons.queue_music);
   }
 }
+
+class DriveFileMoveGlyph extends StatelessWidget {
+  const DriveFileMoveGlyph({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Icon(Icons.drive_file_move_outlined);
+  }
+}

@@ -17,6 +17,7 @@ import '../services/player_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/breakpoints.dart';
 import '../widgets/home_hero.dart';
+import '../widgets/playlist_mosaic.dart';
 import '../widgets/system_playlist_icon.dart';
 import '../widgets/track_meta_links.dart';
 import '../widgets/track_title_line.dart';
@@ -924,6 +925,11 @@ class _PlaylistMark extends StatelessWidget {
         width: size,
         height: size,
         fit: BoxFit.cover,
+      );
+    } else if (!playlist.isSystem) {
+      child = PlaylistMosaicLoader(
+        playlistId: playlist.id,
+        fallback: child,
       );
     }
     return ClipRRect(

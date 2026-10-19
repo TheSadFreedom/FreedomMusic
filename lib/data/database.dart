@@ -195,7 +195,7 @@ class AppDatabase {
     return AppDatabase(db);
   }
 
-  /// Recompute keys as artist+title only. Merges collisions; keeps plays/playlists.
+  /// Recompute keys as artist, title, and note. Merges collisions; keeps plays.
   /// Idempotent. Returns how many rows had their key changed (including merges).
   Future<int> remigrateTrackKeysToArtistTitle() async {
     final rows = await _db.query('tracks');
@@ -214,6 +214,7 @@ class AppDatabase {
       final newKey = buildTrackKey(
         artist: row['artist'] as String? ?? 'Unknown',
         title: row['title'] as String? ?? 'Unknown',
+        note: row['note'] as String?,
       );
       if (oldKey == newKey) continue;
       changed++;
@@ -690,7 +691,11 @@ class AppDatabase {
         continue;
       }
 
-      final newKey = buildTrackKey(artist: newArtist, title: track.title);
+      final newKey = buildTrackKey(
+        artist: newArtist,
+        title: track.title,
+        note: track.note,
+      );
       final updated = track.copyWith(
         trackKey: newKey,
         artist: newArtist,
@@ -1299,6 +1304,55 @@ class AppDatabase {
     });
     await _touchPlaylist(playlistId);
     return true;
+  }
+
+  /// Appends [fromId] tracks onto [toId], skipping ones already there,
+  /// then deletes [fromId].
+  Future<void> movePlaylistTracks({
+    required int fromId,
+    required int toId,
+  }) async {
+    if (fromId == toId) return;
+    final keys = await getPlaylistTrackKeys(fromId);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await _db.transaction((txn) async {
+      final existing = await txn.query(
+        'playlist_tracks',
+        columns: ['track_key'],
+        where: 'playlist_id = ?',
+        whereArgs: [toId],
+      );
+      final have = {
+        for (final row in existing) row['track_key'] as String,
+      };
+      final posRows = await txn.rawQuery(
+        'SELECT COALESCE(MAX(position), -1) + 1 AS next_pos '
+        'FROM playlist_tracks WHERE playlist_id = ?',
+        [toId],
+      );
+      var position = posRows.first['next_pos'] as int;
+      for (final key in keys) {
+        if (!have.add(key)) continue;
+        await txn.insert('playlist_tracks', {
+          'playlist_id': toId,
+          'track_key': key,
+          'position': position,
+        });
+        position++;
+      }
+      await txn.delete(
+        'playlist_tracks',
+        where: 'playlist_id = ?',
+        whereArgs: [fromId],
+      );
+      await txn.delete('playlists', where: 'id = ?', whereArgs: [fromId]);
+      await txn.update(
+        'playlists',
+        {'updated_at': now},
+        where: 'id = ?',
+        whereArgs: [toId],
+      );
+    });
   }
 
   Future<void> removeFromPlaylist(int playlistId, String trackKey) async {

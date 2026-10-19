@@ -355,7 +355,10 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                 delegate: SliverChildBuilderDelegate(
                   (context, index) {
                     final track = popular[index];
-                    final plays = widget.trackPlayCounts[track.trackKey] ?? 0;
+                    final plays = library.playCountFor(
+                      widget.trackPlayCounts,
+                      track.trackKey,
+                    );
                     return _PopularTrackRow(
                       index: index + 1,
                       track: track,
@@ -424,7 +427,10 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                 delegate: SliverChildBuilderDelegate(
                   (context, index) {
                     final track = popular[index];
-                    final plays = widget.trackPlayCounts[track.trackKey] ?? 0;
+                    final plays = library.playCountFor(
+                      widget.trackPlayCounts,
+                      track.trackKey,
+                    );
                     return _PopularTrackRow(
                       index: index + 1,
                       track: track,
@@ -1688,6 +1694,10 @@ class _ArtistAllTracksScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final player = context.read<PlayerService>();
+    final library = context.watch<LibraryService>();
+    final live = [
+      for (final track in tracks) library.resolveTrack(track),
+    ];
 
     return Scaffold(
       backgroundColor: AppTheme.ink,
@@ -1700,24 +1710,27 @@ class _ArtistAllTracksScreen extends StatelessWidget {
         actions: [
           IconButton(
             tooltip: 'Слушать',
-            onPressed: tracks.isEmpty
+            onPressed: live.isEmpty
                 ? null
-                : () => player.playTracks(tracks, shuffle: false),
+                : () => player.playTracks(live, shuffle: false),
             icon: const Icon(Icons.play_arrow_rounded),
           ),
         ],
       ),
       body: ListView.builder(
         padding: const EdgeInsets.only(bottom: 48),
-        itemCount: tracks.length,
+        itemCount: live.length,
         itemBuilder: (context, index) {
-          final track = tracks[index];
-          final plays = trackPlayCounts[track.trackKey] ?? 0;
+          final source = tracks[index];
+          final track = live[index];
+          final plays = trackPlayCounts[track.trackKey] ??
+              trackPlayCounts[source.trackKey] ??
+              0;
           return _PopularTrackRow(
             index: index + 1,
             track: track,
             plays: plays,
-            onTap: () => player.playTracks(tracks, startIndex: index),
+            onTap: () => player.playTracks(live, startIndex: index),
           );
         },
       ),

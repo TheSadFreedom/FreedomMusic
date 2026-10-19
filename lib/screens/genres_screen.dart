@@ -3,23 +3,21 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../models/track.dart';
+import '../services/library_service.dart';
 import '../services/player_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/track_tile.dart';
 
 class GenreDetailScreen extends StatelessWidget {
-  const GenreDetailScreen({
-    super.key,
-    required this.genre,
-    required this.tracks,
-  });
+  const GenreDetailScreen({super.key, required this.genre});
 
   final String genre;
-  final List<Track> tracks;
 
   @override
   Widget build(BuildContext context) {
     final player = context.read<PlayerService>();
+    final library = context.watch<LibraryService>();
+    final tracks = library.tracksByGenre()[genre] ?? const <Track>[];
     return Scaffold(
       backgroundColor: AppTheme.ink,
       body: Column(

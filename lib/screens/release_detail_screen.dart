@@ -42,8 +42,8 @@ class _ReleaseDetailScreenState extends State<ReleaseDetailScreen> {
   ArtistRelease _liveRelease(LibraryService library) {
     final tracks = <Track>[
       for (final track in widget.release.tracks)
-        library.trackByKey(track.trackKey) ?? track,
-    ];
+        library.resolveTrack(track),
+    ].where((track) => !track.isTrashed).toList();
     if (tracks.isEmpty) return widget.release;
     int? year;
     for (final track in tracks) {
@@ -205,16 +205,8 @@ class _ReleaseDetailScreenState extends State<ReleaseDetailScreen> {
                 ),
               ),
               SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final track = tracks[index];
-                    return _TrackRow(
-                      track: track,
-                      onTap: () =>
-                          player.playTracks(tracks, startIndex: index),
-                    );
-                  },
-                  childCount: tracks.length,
+                delegate: SliverChildListDelegate(
+                  _releaseRows(tracks, player),
                 ),
               ),
               SliverToBoxAdapter(
@@ -370,6 +362,52 @@ class _Meta extends StatelessWidget {
           center: centered,
         ),
       ],
+    );
+  }
+}
+
+List<Widget> _releaseRows(List<Track> tracks, PlayerService player) {
+  final discs = <int>{
+    for (final track in tracks) track.discNumber ?? 1,
+  };
+  final multiDisc = discs.length > 1;
+  final rows = <Widget>[];
+  var shownDisc = 0;
+  for (var i = 0; i < tracks.length; i++) {
+    final track = tracks[i];
+    final disc = track.discNumber ?? 1;
+    if (multiDisc && disc != shownDisc) {
+      shownDisc = disc;
+      rows.add(_DiscHeader(number: disc, first: rows.isEmpty));
+    }
+    rows.add(
+      _TrackRow(
+        track: track,
+        onTap: () => player.playTracks(tracks, startIndex: i),
+      ),
+    );
+  }
+  return rows;
+}
+
+class _DiscHeader extends StatelessWidget {
+  const _DiscHeader({required this.number, required this.first});
+
+  final int number;
+  final bool first;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(24, first ? 4 : 18, 24, 6),
+      child: Text(
+        'Диск $number',
+        style: GoogleFonts.figtree(
+          color: AppTheme.paper,
+          fontSize: 16,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
     );
   }
 }

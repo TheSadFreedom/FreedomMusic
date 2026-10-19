@@ -19,6 +19,9 @@ import '../widgets/track_cover_play.dart';
 import '../widgets/track_overflow_menu.dart';
 import '../widgets/track_meta_links.dart';
 import '../utils/trash_actions.dart';
+import '../widgets/playlist_mosaic.dart';
+import '../widgets/app_bottom_sheet.dart';
+import '../widgets/kept_icons.dart';
 import '../widgets/system_playlist_icon.dart';
 import '../widgets/track_tile.dart';
 import 'genres_screen.dart';
@@ -178,6 +181,7 @@ class PlaylistsScreen extends StatelessWidget {
       kind: playlist.isSystem ? 'Системный' : 'Плейлист',
       meta: _playlistMeta(playlist, count),
       coverPath: playlist.coverPath,
+      playlistId: playlist.isSystem ? null : playlist.id,
       icon: _systemIcon(playlist),
       iconColor: _systemIconColor(playlist),
       systemKind: playlist.systemKind,
@@ -216,7 +220,7 @@ class PlaylistsScreen extends StatelessWidget {
       onOpen: () {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
-            builder: (_) => GenreDetailScreen(genre: name, tracks: tracks),
+            builder: (_) => GenreDetailScreen(genre: name),
           ),
         );
       },
@@ -355,6 +359,7 @@ class _CoverItem {
     required this.meta,
     required this.onOpen,
     this.coverPath,
+    this.playlistId,
     this.icon,
     this.iconColor,
     this.systemKind,
@@ -366,6 +371,7 @@ class _CoverItem {
   final String kind;
   final String meta;
   final String? coverPath;
+  final int? playlistId;
   final IconData? icon;
   final Color? iconColor;
   final String? systemKind;
@@ -568,7 +574,7 @@ class _CoverCard extends StatelessWidget {
     } else if (systemKind != null) {
       cover = _SystemCover(kind: systemKind);
     } else {
-      cover = ColoredBox(
+      final fallback = ColoredBox(
         color: AppTheme.inkLift,
         child: Icon(
           item.icon ?? Icons.queue_music,
@@ -576,6 +582,13 @@ class _CoverCard extends StatelessWidget {
           size: 40,
         ),
       );
+      final playlistId = item.playlistId;
+      cover = playlistId == null
+          ? fallback
+          : PlaylistMosaicLoader(
+              playlistId: playlistId,
+              fallback: fallback,
+            );
     }
 
     return InkWell(
@@ -692,6 +705,7 @@ class _MyPlaylistsScreen extends StatelessWidget {
             kind: 'Плейлист',
             meta: _trackCountLabel(pl.trackCount),
             coverPath: pl.coverPath,
+            playlistId: pl.id,
             icon: Icons.queue_music,
             iconColor: AppTheme.mossBright,
             onOpen: () {
@@ -850,7 +864,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
           final tracks = live ??
               [
                 for (final t in snapshot.data ?? const <Track>[])
-                  library.trackByKey(t.trackKey) ?? t,
+                  library.resolveTrack(t),
               ];
           final filtered = _query.trim().isEmpty
               ? tracks
@@ -904,6 +918,8 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                       ? null
                       : () => _editDescription(context, pl),
                   onRename: isSystem ? null : () => _rename(context, pl),
+                  onMove: isSystem ? null : () => _movePlaylist(context, pl),
+                  mosaic: library.playlistMosaic(pl.id),
                 ),
               ),
               SliverToBoxAdapter(
@@ -1087,6 +1103,43 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     await library.renamePlaylist(pl.id, name);
   }
 
+  Future<void> _movePlaylist(BuildContext context, Playlist pl) async {
+    final library = context.read<LibraryService>();
+    final others = library.playlists
+        .where((item) => !item.isSystem && item.id != pl.id)
+        .toList();
+    final targetId = await showAppBottomSheet<int>(
+      context: context,
+      title: 'Переместить в плейлист',
+      scrollControlled: true,
+      buildChildren: (sheetCtx) => [
+        if (others.isEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+            child: Text(
+              'Нет другого плейлиста.',
+              style: GoogleFonts.figtree(color: AppTheme.paperMuted),
+            ),
+          )
+        else
+          for (final item in others)
+            SheetRow(
+              title: item.name,
+              subtitle: _trackCountLabel(item.trackCount),
+              leading: const IconTheme(
+                data: IconThemeData(color: AppTheme.paperMuted, size: 22),
+                child: QueueMusicGlyph(),
+              ),
+              onTap: () => Navigator.pop(sheetCtx, item.id),
+            ),
+      ],
+    );
+    if (targetId == null || !context.mounted) return;
+    await library.movePlaylistTracks(fromId: pl.id, toId: targetId);
+    if (!context.mounted) return;
+    Navigator.of(context).pop();
+  }
+
   Future<void> _addTrack(BuildContext context) async {
     final library = context.read<LibraryService>();
     final all = library.tracks;
@@ -1161,6 +1214,8 @@ class _PlaylistHeader extends StatelessWidget {
     required this.onEditCover,
     required this.onEditDescription,
     required this.onRename,
+    this.onMove,
+    this.mosaic = const [],
   });
 
   final Playlist playlist;
@@ -1170,6 +1225,8 @@ class _PlaylistHeader extends StatelessWidget {
   final VoidCallback? onEditCover;
   final VoidCallback? onEditDescription;
   final VoidCallback? onRename;
+  final VoidCallback? onMove;
+  final List<String> mosaic;
 
   @override
   Widget build(BuildContext context) {
@@ -1186,6 +1243,7 @@ class _PlaylistHeader extends StatelessWidget {
       size: wide ? 200 : 160,
       onEdit: onEditCover,
       systemKind: playlist.systemKind,
+      mosaic: mosaic,
     );
 
     final info = Column(
@@ -1282,12 +1340,24 @@ class _PlaylistHeader extends StatelessWidget {
           onShuffle: onShuffle,
           center: !wide,
           extra: [
+            if (onMove != null)
+              IconButton(
+                style: IconButton.styleFrom(
+                  backgroundColor: AppTheme.inkLift,
+                  foregroundColor: AppTheme.paper,
+                ),
+                mouseCursor: SystemMouseCursors.click,
+                onPressed: onMove,
+                icon: const DriveFileMoveGlyph(),
+                tooltip: 'Переместить',
+              ),
             if (onRename != null)
               IconButton(
                 style: IconButton.styleFrom(
                   backgroundColor: AppTheme.inkLift,
                   foregroundColor: AppTheme.paper,
                 ),
+                mouseCursor: SystemMouseCursors.click,
                 onPressed: onRename,
                 icon: const Icon(Icons.more_horiz),
                 tooltip: 'Переименовать',
@@ -1338,12 +1408,14 @@ class _EditableCover extends StatefulWidget {
     required this.size,
     required this.onEdit,
     this.systemKind,
+    this.mosaic = const [],
   });
 
   final String? path;
   final double size;
   final VoidCallback? onEdit;
   final String? systemKind;
+  final List<String> mosaic;
 
   @override
   State<_EditableCover> createState() => _EditableCoverState();
@@ -1360,6 +1432,8 @@ class _EditableCoverState extends State<_EditableCover> {
       image = Image.file(File(widget.path!), fit: BoxFit.cover);
     } else if (kind != null) {
       image = _SystemCover(kind: kind);
+    } else if (widget.mosaic.isNotEmpty) {
+      image = PlaylistCoverMosaic(paths: widget.mosaic);
     } else {
       image = const ColoredBox(
         color: AppTheme.inkLift,

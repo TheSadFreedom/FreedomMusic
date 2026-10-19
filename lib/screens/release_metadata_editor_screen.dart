@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 
 import '../data/track_key.dart';
 import '../models/artist_release.dart';
+import '../models/track.dart';
 import '../services/library_service.dart';
 import '../services/metadata_writer.dart';
 import '../services/player_service.dart';
@@ -37,10 +38,7 @@ List<TrackMenuAction> releaseMenuActions(
   VoidCallback? onSaved,
 }) {
   final cover = releaseCoverMenuAction(context, release);
-  return [
-    releaseMetadataAction(context, release, onSaved: onSaved),
-    ?cover,
-  ];
+  return [releaseMetadataAction(context, release, onSaved: onSaved), ?cover];
 }
 
 TrackMenuAction releaseMetadataAction(
@@ -70,10 +68,14 @@ class ReleaseMetadataEditorScreen extends StatefulWidget {
 
 class _ReleaseMetadataEditorScreenState
     extends State<ReleaseMetadataEditorScreen> {
+  late final TextEditingController _note;
   late final TextEditingController _album;
   late final TextEditingController _albumArtist;
-  late final TextEditingController _trackTotal;
+  late final TextEditingController _producer;
+  late final TextEditingController _genre;
   late final TextEditingController _year;
+  late final TextEditingController _trackTotal;
+  late final TextEditingController _disc;
   final _formKey = GlobalKey<FormState>();
   bool _saving = false;
   String? _error;
@@ -87,20 +89,53 @@ class _ReleaseMetadataEditorScreenState
   void initState() {
     super.initState();
     final release = widget.release;
+    _note = TextEditingController(text: _sharedText((track) => track.note));
     _album = TextEditingController(text: metaFieldText(release.title));
     _albumArtist = TextEditingController(
       text: metaFieldText(
         formatArtists(releaseAlbumArtists(release).join(', ')),
       ),
     );
-    final total = _initialTrackTotal(release);
-    _trackTotal = TextEditingController(
-      text: total == null ? '' : '$total',
+    _producer = TextEditingController(
+      text: _sharedText((track) => track.producer),
     );
+    _genre = TextEditingController(text: _sharedText((track) => track.genre));
     final year = release.year;
     _year = TextEditingController(
       text: (year == null || year <= 0) ? '' : '$year',
     );
+    final total = _initialTrackTotal(release);
+    _trackTotal = TextEditingController(text: total == null ? '' : '$total');
+    final disc = _initialDisc(release);
+    _disc = TextEditingController(text: disc == null ? '' : '$disc');
+  }
+
+  /// Value shared by every track. Mixed tags start empty so a save can set one.
+  String _sharedText(String? Function(Track track) read) {
+    String? value;
+    for (final track in widget.release.tracks) {
+      final next = metaFieldText(read(track));
+      if (value == null) {
+        value = next;
+      } else if (value != next) {
+        return '';
+      }
+    }
+    return value ?? '';
+  }
+
+  int? _initialDisc(ArtistRelease release) {
+    int? disc;
+    for (final track in release.tracks) {
+      final value = track.discNumber;
+      if (value == null || value < 1) continue;
+      if (disc == null) {
+        disc = value;
+      } else if (disc != value) {
+        return null;
+      }
+    }
+    return disc;
   }
 
   int? _initialTrackTotal(ArtistRelease release) {
@@ -115,10 +150,14 @@ class _ReleaseMetadataEditorScreenState
 
   @override
   void dispose() {
+    _note.dispose();
     _album.dispose();
     _albumArtist.dispose();
-    _trackTotal.dispose();
+    _producer.dispose();
+    _genre.dispose();
     _year.dispose();
+    _trackTotal.dispose();
+    _disc.dispose();
     super.dispose();
   }
 
@@ -172,23 +211,36 @@ class _ReleaseMetadataEditorScreenState
       _progress = null;
     });
 
+    final note = _note.text;
     final album = _album.text;
     final albumArtist = _albumArtist.text;
+    final producer = _producer.text;
+    final genre = _genre.text;
     final year = _parseOptional(_year.text);
     final trackTotal = _parseOptional(_trackTotal.text);
+    final disc = _parseOptional(_disc.text);
     final library = context.read<LibraryService>();
     final player = context.read<PlayerService>();
+    final saved = <({Track track, String oldKey})>[];
 
     try {
       for (var i = 0; i < tracks.length; i++) {
-        if (!mounted) return;
+        if (!mounted) {
+          await library.publishMetadata();
+          player.syncTracks(saved);
+          return;
+        }
         setState(() => _progress = '${i + 1} из ${tracks.length}');
         final track = tracks[i];
         final draft = MetadataDraft.fromTrack(track)
+          ..note = note
           ..album = album
           ..albumArtist = albumArtist
+          ..producer = producer
+          ..genre = genre
           ..year = year
           ..trackTotal = trackTotal
+          ..discNumber = disc
           ..coverBytes = _newCoverBytes
           ..coverMime = _newCoverMime
           ..removeCover = _removeCover;
@@ -198,14 +250,16 @@ class _ReleaseMetadataEditorScreenState
           refreshLibrary: false,
           notify: false,
         );
-        player.syncTrack(updated, oldTrackKey: track.trackKey);
+        saved.add((track: updated, oldKey: track.trackKey));
       }
-      await library.reload();
+      await library.publishMetadata();
+      player.syncTracks(saved);
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {
       try {
-        await library.reload();
+        await library.publishMetadata();
+        player.syncTracks(saved);
       } catch (_) {}
       if (!mounted) return;
       setState(() {
@@ -341,26 +395,66 @@ class _ReleaseMetadataEditorScreenState
                           onClear: _saving ? null : _clearCover,
                         ),
                         const SizedBox(height: 28),
-                        _field(_albumArtist, 'Исполнитель альбома'),
-                        _field(
-                          _trackTotal,
-                          'Всего треков',
-                          keyboard: TextInputType.number,
-                          inputFormatters: [
-                            FilteringTextInputFormatter.digitsOnly,
-                          ],
-                          validator: _positiveOrEmpty,
-                        ),
-                        _field(
-                          _year,
-                          'Год',
-                          keyboard: TextInputType.number,
-                          inputFormatters: [
-                            FilteringTextInputFormatter.digitsOnly,
-                          ],
-                          validator: _yearOrEmpty,
-                        ),
+                        _field(_note, 'Заметка'),
                         _field(_album, 'Альбом'),
+                        _field(_albumArtist, 'Артист альбома'),
+                        _field(_producer, 'Продюсер'),
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final wide = constraints.maxWidth >= 480;
+                            final genre = _field(_genre, 'Жанр');
+                            final year = _field(
+                              _year,
+                              'Год',
+                              keyboard: TextInputType.number,
+                              inputFormatters: [
+                                FilteringTextInputFormatter.digitsOnly,
+                              ],
+                              validator: _yearOrEmpty,
+                            );
+                            if (!wide) return Column(children: [genre, year]);
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(flex: 3, child: genre),
+                                const SizedBox(width: 14),
+                                Expanded(flex: 1, child: year),
+                              ],
+                            );
+                          },
+                        ),
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final wide = constraints.maxWidth >= 480;
+                            final total = _field(
+                              _trackTotal,
+                              'Всего треков',
+                              keyboard: TextInputType.number,
+                              inputFormatters: [
+                                FilteringTextInputFormatter.digitsOnly,
+                              ],
+                              validator: _positiveOrEmpty,
+                            );
+                            final disc = _field(
+                              _disc,
+                              'Диск',
+                              keyboard: TextInputType.number,
+                              inputFormatters: [
+                                FilteringTextInputFormatter.digitsOnly,
+                              ],
+                              validator: _positiveOrEmpty,
+                            );
+                            if (!wide) return Column(children: [total, disc]);
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(child: total),
+                                const SizedBox(width: 14),
+                                Expanded(child: disc),
+                              ],
+                            );
+                          },
+                        ),
                         if (_error != null) ...[
                           const SizedBox(height: 8),
                           Text(
@@ -439,8 +533,10 @@ class _ReleaseMetadataEditorScreenState
             vertical: 16,
           ),
           border: OutlineInputBorder(borderRadius: radius, borderSide: idle),
-          enabledBorder:
-              OutlineInputBorder(borderRadius: radius, borderSide: idle),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: radius,
+            borderSide: idle,
+          ),
           focusedBorder: OutlineInputBorder(
             borderRadius: radius,
             borderSide: const BorderSide(color: _kYellow, width: 1.4),
@@ -489,7 +585,8 @@ class _CoverEditor extends StatelessWidget {
         image = Image.file(File(existingPath!), fit: BoxFit.cover);
       }
     }
-    final hasCover = !removed &&
+    final hasCover =
+        !removed &&
         (newBytes != null ||
             (existingPath != null && File(existingPath!).existsSync()));
 
@@ -573,10 +670,7 @@ class _CoverButton extends StatelessWidget {
       children: [
         icon,
         const SizedBox(width: 8),
-        Text(
-          label,
-          style: GoogleFonts.figtree(fontWeight: FontWeight.w700),
-        ),
+        Text(label, style: GoogleFonts.figtree(fontWeight: FontWeight.w700)),
       ],
     );
     if (filled) {

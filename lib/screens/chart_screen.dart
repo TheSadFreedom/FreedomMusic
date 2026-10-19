@@ -52,10 +52,17 @@ class _AlbumChartRow {
 }
 
 class _ChartData {
-  const _ChartData({required this.tracks, required this.albums});
+  const _ChartData({
+    required this.tracks,
+    required this.albums,
+    required this.playCounts,
+    required this.albumSnapshot,
+  });
 
   final List<_ChartRow> tracks;
   final List<_AlbumChartRow> albums;
+  final Map<String, int> playCounts;
+  final Map<String, int> albumSnapshot;
 }
 
 class ChartScreen extends StatefulWidget {
@@ -80,11 +87,13 @@ class _ChartScreenState extends State<ChartScreen> {
     final settings = context.read<SettingsService>();
     final entries = await library.chart(ChartPeriod.allTime);
     final playCounts = await library.playCountsAllTime();
-    final trackRows = _rankTracks(entries, settings.chartSnapshot(ChartPeriod.allTime.name));
+    final trackSnapshot = settings.chartSnapshot(ChartPeriod.allTime.name);
+    final albumSnapshot = settings.chartSnapshot('albums');
+    final trackRows = _rankTracks(entries, trackSnapshot);
     final albumRows = _rankAlbums(
       library.tracks,
       playCounts,
-      settings.chartSnapshot('albums'),
+      albumSnapshot,
     );
     await settings.saveChartSnapshot(ChartPeriod.allTime.name, {
       for (final row in trackRows) row.entry.track.trackKey: row.rank,
@@ -92,7 +101,12 @@ class _ChartScreenState extends State<ChartScreen> {
     await settings.saveChartSnapshot('albums', {
       for (final row in albumRows) _albumKey(row.release, row.artist): row.rank,
     });
-    return _ChartData(tracks: trackRows, albums: albumRows);
+    return _ChartData(
+      tracks: trackRows,
+      albums: albumRows,
+      playCounts: playCounts,
+      albumSnapshot: albumSnapshot,
+    );
   }
 
   List<_ChartRow> _rankTracks(List<ChartEntry> entries, Map<String, int> prev) {
@@ -260,7 +274,23 @@ class _ChartScreenState extends State<ChartScreen> {
                     }
                     final data = snapshot.data;
                     if (data == null) return const SizedBox.shrink();
-                    final tracks = data.tracks.map((r) => r.entry.track).toList();
+                    final rows = [
+                      for (final row in data.tracks)
+                        _ChartRow(
+                          rank: row.rank,
+                          delta: row.delta,
+                          entry: ChartEntry(
+                            track: library.resolveTrack(row.entry.track),
+                            playCount: row.entry.playCount,
+                          ),
+                        ),
+                    ];
+                    final albums = _rankAlbums(
+                      library.tracks,
+                      data.playCounts,
+                      data.albumSnapshot,
+                    );
+                    final tracks = rows.map((r) => r.entry.track).toList();
                     return Row(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -272,9 +302,9 @@ class _ChartScreenState extends State<ChartScreen> {
                                 : ListView.builder(
                                     padding: const EdgeInsets.only(bottom: 16),
                                     itemExtent: 64,
-                                    itemCount: data.tracks.length,
+                                    itemCount: rows.length,
                                     itemBuilder: (context, index) {
-                                      final row = data.tracks[index];
+                                      final row = rows[index];
                                       return _ChartTrackRow(
                                         row: row,
                                         onPlay: () => player.playTracks(
@@ -302,7 +332,7 @@ class _ChartScreenState extends State<ChartScreen> {
                           child: _ChartColumn(
                             title: 'Альбомы',
                             child: _AlbumChartList(
-                              rows: data.albums,
+                              rows: albums,
                               onEdited: _reload,
                             ),
                           ),

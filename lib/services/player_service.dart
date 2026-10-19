@@ -616,7 +616,7 @@ class PlayerService extends ChangeNotifier {
   }
 
   /// Keep queue in sync after metadata edits (path / key may change).
-  void syncTrack(Track updated, {String? oldTrackKey}) {
+  void syncTrack(Track updated, {String? oldTrackKey, bool notify = true}) {
     for (var i = 0; i < _queue.length; i++) {
       final t = _queue[i];
       final sameKey =
@@ -626,6 +626,14 @@ class PlayerService extends ChangeNotifier {
       if (sameKey || samePath) {
         _queue[i] = updated;
       }
+    }
+    if (notify) notifyListeners();
+  }
+
+  /// Apply several metadata edits, then refresh the player once.
+  void syncTracks(Iterable<({Track track, String oldKey})> edits) {
+    for (final edit in edits) {
+      syncTrack(edit.track, oldTrackKey: edit.oldKey, notify: false);
     }
     notifyListeners();
   }
