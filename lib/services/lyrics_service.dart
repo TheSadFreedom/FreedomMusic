@@ -34,30 +34,65 @@ class LyricsService {
       return null;
     }
 
-    final fromGenius = await _genius.lyrics(artist: artist, title: title);
-    if (hasLyrics(fromGenius)) return fromGenius;
-
     final album = track.displayAlbum;
     final albumName =
         album.toLowerCase() == 'unknown' ? null : album.trim();
     final durationSec = track.durationMs == null
         ? null
         : (track.durationMs! / 1000).round().clamp(1, 3600);
+    final note = track.displayNote;
 
+    if (note != null) {
+      final withNote = await _fetchOnce(
+        artist: artist,
+        title: title,
+        note: note,
+        albumName: albumName,
+        durationSec: durationSec,
+      );
+      if (hasLyrics(withNote)) return withNote;
+    }
+    return _fetchOnce(
+      artist: artist,
+      title: title,
+      albumName: albumName,
+      durationSec: durationSec,
+    );
+  }
+
+  /// [note] set: «Artist - Title Note». Otherwise: «Artist - Title».
+  Future<String?> _fetchOnce({
+    required String artist,
+    required String title,
+    String? note,
+    String? albumName,
+    int? durationSec,
+  }) async {
+    final fromGenius = await _genius.lyrics(
+      artist: artist,
+      title: title,
+      note: note,
+      phrase: true,
+    );
+    if (hasLyrics(fromGenius)) return fromGenius;
+
+    final trackName = note == null ? title : '$title $note';
     final fromGet = await _getBySignature(
-      trackName: title,
+      trackName: trackName,
       artistName: artist,
       albumName: albumName,
       durationSec: durationSec,
+      requiredNote: note,
     );
     if (fromGet != null) return fromGet;
 
     // Duration mismatches (±2s) often fail `/api/get` — fall back to search.
     return _searchBest(
-      trackName: title,
+      trackName: trackName,
       artistName: artist,
       albumName: albumName,
       durationSec: durationSec,
+      requiredNote: note,
     );
   }
 
@@ -66,6 +101,7 @@ class LyricsService {
     required String artistName,
     String? albumName,
     int? durationSec,
+    String? requiredNote,
   }) async {
     final query = <String, String>{
       'track_name': trackName,
@@ -75,6 +111,10 @@ class LyricsService {
     };
     final data = await _getJson(Uri.https('lrclib.net', '/api/get', query));
     if (data == null) return null;
+    if (requiredNote != null &&
+        !_hasNote('${data['trackName'] ?? data['name'] ?? ''}', requiredNote)) {
+      return null;
+    }
     return _lyricsFromRecord(data);
   }
 
@@ -83,6 +123,7 @@ class LyricsService {
     required String artistName,
     String? albumName,
     int? durationSec,
+    String? requiredNote,
   }) async {
     final data = await _getJsonList(
       Uri.https('lrclib.net', '/api/search', {
@@ -98,6 +139,10 @@ class LyricsService {
     for (final raw in data) {
       if (raw is! Map) continue;
       final map = Map<String, dynamic>.from(raw);
+      if (requiredNote != null) {
+        final foundTitle = '${map['trackName'] ?? map['name'] ?? ''}';
+        if (!_hasNote(foundTitle, requiredNote)) continue;
+      }
       final score = _matchScore(
         map,
         trackName: trackName,
@@ -154,6 +199,12 @@ class LyricsService {
     final plain = '${map['plainLyrics'] ?? ''}'.trim();
     if (hasLyrics(plain)) return plain;
     return null;
+  }
+
+  bool _hasNote(String found, String note) {
+    final label = _norm(note);
+    if (label.isEmpty) return true;
+    return _norm(found).contains(label);
   }
 
   bool _close(String a, String b) {

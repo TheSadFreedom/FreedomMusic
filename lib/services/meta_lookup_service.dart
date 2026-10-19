@@ -117,20 +117,42 @@ class MetaLookupService {
   Future<OnlineMetaHit?> lookup({
     required String artist,
     required String title,
+    String? note,
   }) async {
     final a = artist.trim();
     final t = title.trim();
+    final label = _noteText(note);
     if (a.isEmpty || t.isEmpty || a.toLowerCase() == 'unknown') return null;
 
-    final genius = await _fromGenius(a, t);
+    final genius = await _fromGenius(a, t, note: label);
     if (genius != null) return genius;
-    final itunes = await _itunes(a, t);
+    final itunes = await _itunes(a, t, note: label);
     if (itunes != null) return itunes;
-    return _deezer(a, t);
+    return _deezer(a, t, note: label);
   }
 
-  Future<OnlineMetaHit?> _fromGenius(String artist, String title) async {
-    final hit = await _genius.lookup(artist: artist, title: title);
+  String? _noteText(String? note) {
+    final raw = note?.trim() ?? '';
+    if (raw.isEmpty || isBlankMeta(raw)) return null;
+    return raw;
+  }
+
+  bool _hasNote(String found, String note) {
+    final label = _norm(note);
+    if (label.isEmpty) return true;
+    return _norm(found).contains(label);
+  }
+
+  Future<OnlineMetaHit?> _fromGenius(
+    String artist,
+    String title, {
+    String? note,
+  }) async {
+    final hit = await _genius.lookup(
+      artist: artist,
+      title: title,
+      note: note,
+    );
     if (hit == null) return null;
     final lyrics = hit.lyrics?.trim();
     final album = hit.album?.trim();
@@ -217,8 +239,13 @@ class MetaLookupService {
     }
   }
 
-  Future<OnlineMetaHit?> _itunes(String artist, String title) async {
-    final term = '${_primaryArtist(artist)} $title';
+  Future<OnlineMetaHit?> _itunes(
+    String artist,
+    String title, {
+    String? note,
+  }) async {
+    final primary = _primaryArtist(artist);
+    final term = note == null ? '$primary $title' : '$primary - $title $note';
     for (final country in ['ru', 'us']) {
       final uri = Uri.https('itunes.apple.com', '/search', {
         'term': term,
@@ -238,6 +265,7 @@ class MetaLookupService {
         final artistName = '${map['artistName'] ?? ''}';
         if (!_titleClose(title, trackName)) continue;
         if (!_artistClose(artist, artistName)) continue;
+        if (note != null && !_hasNote(trackName, note)) continue;
 
         final album = cleanAlbum('${map['collectionName'] ?? ''}');
         final date = '${map['releaseDate'] ?? ''}';
@@ -287,8 +315,14 @@ class MetaLookupService {
     return null;
   }
 
-  Future<OnlineMetaHit?> _deezer(String artist, String title) async {
-    final q = 'artist:"${_primaryArtist(artist)}" track:"$title"';
+  Future<OnlineMetaHit?> _deezer(
+    String artist,
+    String title, {
+    String? note,
+  }) async {
+    final primary = _primaryArtist(artist);
+    final trackQuery = note == null ? title : '$title $note';
+    final q = 'artist:"$primary" track:"$trackQuery"';
     final searchUri = Uri.https('api.deezer.com', '/search', {
       'q': q,
       'limit': '10',
@@ -296,7 +330,7 @@ class MetaLookupService {
     var data = await _getJson(searchUri);
     var list = data?['data'];
     if (list is! List || list.isEmpty) {
-      final q2 = '${_primaryArtist(artist)} $title';
+      final q2 = note == null ? '$primary $title' : '$primary - $title $note';
       data = await _getJson(
         Uri.https('api.deezer.com', '/search', {'q': q2, 'limit': '10'}),
       );
@@ -312,6 +346,7 @@ class MetaLookupService {
       final artName = art is Map ? '${art['name'] ?? ''}' : '';
       if (!_titleClose(title, trackTitle)) continue;
       if (!_artistClose(artist, artName)) continue;
+      if (note != null && !_hasNote(trackTitle, note)) continue;
 
       var album = '';
       final alb = map['album'];

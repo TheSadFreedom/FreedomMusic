@@ -50,10 +50,13 @@ class GeniusService {
   Future<GeniusHit?> lookup({
     required String artist,
     required String title,
+    String? note,
+    bool phrase = false,
   }) async {
-    final key = '${_norm(artist)}|${_norm(title)}';
+    final label = _noteText(note);
+    final key = '${_norm(artist)}|${_norm(title)}|${_norm(label ?? '')}|$phrase';
     if (_cache.containsKey(key)) return _cache[key];
-    final hit = await _fetch(artist, title);
+    final hit = await _fetch(artist, title, note: label, phrase: phrase);
     _cache[key] = hit;
     return hit;
   }
@@ -61,29 +64,72 @@ class GeniusService {
   Future<String?> lyrics({
     required String artist,
     required String title,
+    String? note,
+    bool phrase = false,
   }) async {
-    final hit = await lookup(artist: artist, title: title);
+    final hit = await lookup(
+      artist: artist,
+      title: title,
+      note: note,
+      phrase: phrase,
+    );
     final text = hit?.lyrics?.trim();
     if (text == null || text.isEmpty) return null;
     return text;
   }
 
-  Future<GeniusHit?> _fetch(String artist, String title) async {
-    final query = '${_primary(artist)} $title'.trim();
+  Future<GeniusHit?> _fetch(
+    String artist,
+    String title, {
+    String? note,
+    bool phrase = false,
+  }) async {
+    final query = _searchQuery(artist, title, note: note, phrase: phrase);
     if (query.isEmpty) return null;
     final search = await _get(
       Uri.https('genius.com', '/api/search/multi', {'q': query}),
       json: true,
     );
     if (search == null) return null;
-    final url = _pickSongUrl(search, artist, title);
+    final url = _pickSongUrl(search, artist, title, note: note);
     if (url == null) return null;
     final html = await _get(Uri.parse(url), json: false);
     if (html == null) return null;
     return _parseSongPage(html);
   }
 
-  String? _pickSongUrl(String body, String artist, String title) {
+  /// «Artist - Title» or, when [note] is set, «Artist - Title Note».
+  String _searchQuery(
+    String artist,
+    String title, {
+    String? note,
+    bool phrase = false,
+  }) {
+    final primary = _primary(artist);
+    final label = _noteText(note);
+    if (label != null) return '$primary - $title $label'.trim();
+    if (phrase) return '$primary - $title'.trim();
+    return '$primary $title'.trim();
+  }
+
+  String? _noteText(String? note) {
+    final raw = note?.trim() ?? '';
+    if (raw.isEmpty || isBlankMeta(raw)) return null;
+    return raw;
+  }
+
+  bool _hasNote(String found, String note) {
+    final label = _norm(note);
+    if (label.isEmpty) return true;
+    return _norm(found).contains(label);
+  }
+
+  String? _pickSongUrl(
+    String body,
+    String artist,
+    String title, {
+    String? note,
+  }) {
     try {
       final data = jsonDecode(body);
       if (data is! Map) return null;
@@ -107,6 +153,7 @@ class GeniusService {
               artistMap is Map ? '${artistMap['name'] ?? ''}' : '';
           if (!_titleClose(title, foundTitle)) continue;
           if (!_artistClose(artist, foundArtist)) continue;
+          if (note != null && !_hasNote(foundTitle, note)) continue;
           final url = '${result['url'] ?? ''}'.trim();
           if (url.startsWith('https://genius.com/')) return url;
         }
