@@ -453,8 +453,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                     MaterialPageRoute<void>(
                       builder: (_) => _ArtistAllReleasesScreen(
                         artist: widget.artist,
-                        sectionTitle: 'Альбомы',
-                        releases: albums,
+                        section: _ReleaseSection.albums,
                         playCountsByKey: widget.trackPlayCounts,
                       ),
                     ),
@@ -480,8 +479,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                     MaterialPageRoute<void>(
                       builder: (_) => _ArtistAllReleasesScreen(
                         artist: widget.artist,
-                        sectionTitle: 'EP',
-                        releases: eps,
+                        section: _ReleaseSection.eps,
                         playCountsByKey: widget.trackPlayCounts,
                       ),
                     ),
@@ -507,8 +505,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                     MaterialPageRoute<void>(
                       builder: (_) => _ArtistAllReleasesScreen(
                         artist: widget.artist,
-                        sectionTitle: 'Синглы',
-                        releases: singles,
+                        section: _ReleaseSection.singles,
                         playCountsByKey: widget.trackPlayCounts,
                       ),
                     ),
@@ -534,8 +531,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                     MaterialPageRoute<void>(
                       builder: (_) => _ArtistAllReleasesScreen(
                         artist: widget.artist,
-                        sectionTitle: 'Участие в релизах',
-                        releases: appearances,
+                        section: _ReleaseSection.appearances,
                         playCountsByKey: widget.trackPlayCounts,
                       ),
                     ),
@@ -1501,19 +1497,71 @@ class _ReleaseCard extends StatelessWidget {
   }
 }
 
+enum _ReleaseSection { albums, eps, singles, appearances }
+
 /// Full album / single grid for an artist.
+///
+/// Releases are read from the library on each build, so a metadata edit
+/// made from a release opened here shows up when this page is visible again.
 class _ArtistAllReleasesScreen extends StatelessWidget {
   const _ArtistAllReleasesScreen({
     required this.artist,
-    required this.sectionTitle,
-    required this.releases,
+    required this.section,
     required this.playCountsByKey,
   });
 
   final String artist;
-  final String sectionTitle;
-  final List<ArtistRelease> releases;
+  final _ReleaseSection section;
   final Map<String, int> playCountsByKey;
+
+  String get _sectionTitle {
+    switch (section) {
+      case _ReleaseSection.albums:
+        return 'Альбомы';
+      case _ReleaseSection.eps:
+        return 'EP';
+      case _ReleaseSection.singles:
+        return 'Синглы';
+      case _ReleaseSection.appearances:
+        return 'Участие в релизах';
+    }
+  }
+
+  List<ArtistRelease> _releases(LibraryService library) {
+    final want = artist.toLowerCase();
+    final tracks = library.tracks
+        .where(
+          (track) => track.artists.any(
+            (name) => library.artistCardName(name).toLowerCase() == want,
+          ),
+        )
+        .toList(growable: false);
+    final groups = groupArtistReleases(
+      artistTracks: tracks,
+      libraryTracks: library.tracks,
+      isThisArtist: (name) =>
+          library.artistCardName(name).toLowerCase() == want,
+      cardName: library.artistCardName,
+    );
+    switch (section) {
+      case _ReleaseSection.albums:
+        return groups.albums;
+      case _ReleaseSection.eps:
+        return groups.eps;
+      case _ReleaseSection.singles:
+        return groups.singles;
+      case _ReleaseSection.appearances:
+        return groups.appearances;
+    }
+  }
+
+  int _listenCount(LibraryService library, ArtistRelease release) {
+    var total = 0;
+    for (final track in release.tracks) {
+      total += library.playCountFor(playCountsByKey, track.trackKey);
+    }
+    return total;
+  }
 
   void _open(BuildContext context, ArtistRelease release, String credit) {
     Navigator.of(context).push(
@@ -1528,12 +1576,14 @@ class _ArtistAllReleasesScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final library = context.watch<LibraryService>();
+    final releases = _releases(library);
     return Scaffold(
       backgroundColor: AppTheme.ink,
       appBar: AppBar(
         backgroundColor: AppTheme.ink,
         title: Text(
-          '$sectionTitle $artist',
+          '$_sectionTitle $artist',
           style: GoogleFonts.syne(fontWeight: FontWeight.w700),
         ),
       ),
@@ -1553,7 +1603,7 @@ class _ArtistAllReleasesScreen extends StatelessWidget {
             release: release,
             artist: credit,
             width: null,
-            listenCount: releaseListenCount(release, playCountsByKey),
+            listenCount: _listenCount(library, release),
             onTap: () => _open(context, release, credit),
           );
         },
