@@ -8,6 +8,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'data/app_paths.dart';
 import 'data/database.dart';
+import 'navigation/app_navigator.dart';
 import 'screens/shell.dart';
 import 'services/audio_handler.dart';
 import 'services/desktop_shell.dart';
@@ -170,6 +171,7 @@ class FreedomMusicApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: appNavigatorKey,
       title: 'Freedom Music',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark(),

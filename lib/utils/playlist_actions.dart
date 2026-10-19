@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../models/track.dart';
+import '../navigation/app_navigator.dart';
 import '../services/library_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_bottom_sheet.dart';
@@ -11,6 +12,7 @@ const _kYellow = Color(0xFFFFDB4D);
 
 /// Pick a user playlist (or create one) and add [track] to it.
 Future<void> addTrackToPlaylist(BuildContext context, Track track) async {
+  context = navigatorContext(context);
   final library = context.read<LibraryService>();
   final lists = library.playlists.where((p) => !p.isSystem).toList();
 
