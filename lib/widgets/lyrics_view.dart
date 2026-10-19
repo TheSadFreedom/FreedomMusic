@@ -259,44 +259,47 @@ class _LyricScrollerState extends State<_LyricScroller> {
 
     return Scrollbar(
       controller: _scroll,
-      child: ScrollConfiguration(
-        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-        child: ShaderMask(
-          blendMode: BlendMode.dstIn,
-          shaderCallback: (rect) {
-            return const LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Colors.transparent,
-                Colors.white,
-                Colors.white,
-                Colors.transparent,
-              ],
-              stops: [0.0, 0.14, 0.78, 1.0],
-            ).createShader(rect);
-          },
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final pad = constraints.maxHeight * 0.34;
-              // Right inset keeps lines clear of the volume capsule,
-              // which opens upward from the player into this stage.
-              return SingleChildScrollView(
-                controller: _scroll,
-                padding: EdgeInsets.fromLTRB(wide ? 72 : 28, pad, 96, pad),
-                child: Column(
-                  children: [
-                    for (var i = 0; i < widget.lines.length; i++)
-                      _Line(
-                        key: _keys[i],
-                        text: widget.lines[i].text,
-                        role: _role(i, active, synced),
-                        wide: wide,
-                      ),
-                  ],
-                ),
-              );
+      child: Padding(
+        padding: const EdgeInsets.only(right: AppScrollBehavior.gutter),
+        child: ScrollConfiguration(
+          behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+          child: ShaderMask(
+            blendMode: BlendMode.dstIn,
+            shaderCallback: (rect) {
+              return const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.transparent,
+                  Colors.white,
+                  Colors.white,
+                  Colors.transparent,
+                ],
+                stops: [0.0, 0.14, 0.78, 1.0],
+              ).createShader(rect);
             },
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final pad = constraints.maxHeight * 0.34;
+                // Right inset keeps lines clear of the volume capsule,
+                // which opens upward from the player into this stage.
+                return SingleChildScrollView(
+                  controller: _scroll,
+                  padding: EdgeInsets.fromLTRB(wide ? 72 : 28, pad, 96, pad),
+                  child: Column(
+                    children: [
+                      for (var i = 0; i < widget.lines.length; i++)
+                        _Line(
+                          key: _keys[i],
+                          text: widget.lines[i].text,
+                          role: _role(i, active, synced),
+                          wide: wide,
+                        ),
+                    ],
+                  ),
+                );
+              },
+            ),
           ),
         ),
       ),

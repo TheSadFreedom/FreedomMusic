@@ -175,12 +175,11 @@ class FreedomMusicApp extends StatelessWidget {
       title: 'Freedom Music',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark(),
+      scrollBehavior: const AppScrollBehavior(),
       builder: (context, child) {
         return TooltipVisibility(
           visible: false,
-          child: AppPlayerLayer(
-            child: child ?? const SizedBox.shrink(),
-          ),
+          child: AppPlayerLayer(child: child ?? const SizedBox.shrink()),
         );
       },
       home: const AppShell(),

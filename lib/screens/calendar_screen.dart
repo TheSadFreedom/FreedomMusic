@@ -161,67 +161,88 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     final rows = _timelineRows(sections);
                     _yearOffsets = _offsetsFor(rows);
                     final width = math.max(
-                      constraints.maxWidth,
+                      math.max(
+                        0.0,
+                        constraints.maxWidth - AppScrollBehavior.gutter,
+                      ),
                       _timelineWidth(sections),
                     );
+                    final height = math.max(
+                      0.0,
+                      constraints.maxHeight - AppScrollBehavior.gutter,
+                    );
                     return Scrollbar(
-                      controller: _horizontal,
+                      controller: _scroll,
                       notificationPredicate: (notification) =>
-                          notification.metrics.axis == Axis.horizontal,
-                      child: ScrollConfiguration(
-                        behavior: ScrollConfiguration.of(context)
-                            .copyWith(scrollbars: false),
-                        child: SingleChildScrollView(
+                          notification.metrics.axis == Axis.vertical,
+                      child: Padding(
+                        padding: const EdgeInsets.only(
+                          right: AppScrollBehavior.gutter,
+                        ),
+                        child: Scrollbar(
                           controller: _horizontal,
-                          scrollDirection: Axis.horizontal,
-                          child: ScrollConfiguration(
-                            behavior: ScrollConfiguration.of(context),
-                            child: SizedBox(
-                              width: width,
-                              height: constraints.maxHeight,
-                              child: CustomScrollView(
-                                controller: _scroll,
-                                slivers: [
-                                  SliverPadding(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      12,
-                                      _kListTopPadding,
-                                      20,
-                                      28,
-                                    ),
-                                    sliver: SliverVariedExtentList.builder(
-                                      itemCount: rows.length,
-                                      itemExtentBuilder: (index, dimensions) {
-                                        return rows[index] is _YearMark
-                                            ? _kYearExtent
-                                            : _kReleaseExtent;
-                                      },
-                                      itemBuilder: (context, index) {
-                                        final row = rows[index];
-                                        final above = index > 0;
-                                        final below = index < rows.length - 1;
-                                        return switch (row) {
-                                          _YearMark(
-                                            :final label,
-                                            :final count,
-                                          ) =>
-                                            _YearNode(
-                                              label: label,
-                                              count: count,
-                                              above: above,
-                                              below: below,
-                                            ),
-                                          _ReleaseLine(:final releases) =>
-                                            _ReleaseLineNode(
-                                              releases: releases,
-                                              above: above,
-                                              below: below,
-                                            ),
-                                        };
-                                      },
-                                    ),
+                          notificationPredicate: (notification) =>
+                              notification.metrics.axis == Axis.horizontal,
+                          child: Padding(
+                            padding: const EdgeInsets.only(
+                              bottom: AppScrollBehavior.gutter,
+                            ),
+                            child: ScrollConfiguration(
+                              behavior: ScrollConfiguration.of(context)
+                                  .copyWith(scrollbars: false),
+                              child: SingleChildScrollView(
+                                controller: _horizontal,
+                                scrollDirection: Axis.horizontal,
+                                child: SizedBox(
+                                  width: width,
+                                  height: height,
+                                  child: CustomScrollView(
+                                    controller: _scroll,
+                                    slivers: [
+                                      SliverPadding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                          12,
+                                          _kListTopPadding,
+                                          20,
+                                          28,
+                                        ),
+                                        sliver: SliverVariedExtentList.builder(
+                                          itemCount: rows.length,
+                                          itemExtentBuilder:
+                                              (index, dimensions) {
+                                                return rows[index] is _YearMark
+                                                    ? _kYearExtent
+                                                    : _kReleaseExtent;
+                                              },
+                                          itemBuilder: (context, index) {
+                                            final row = rows[index];
+                                            final above = index > 0;
+                                            final below =
+                                                index < rows.length - 1;
+                                            return switch (row) {
+                                              _YearMark(
+                                                :final label,
+                                                :final count,
+                                              ) =>
+                                                _YearNode(
+                                                  label: label,
+                                                  count: count,
+                                                  above: above,
+                                                  below: below,
+                                                ),
+                                              _ReleaseLine(:final releases) =>
+                                                _ReleaseLineNode(
+                                                  releases: releases,
+                                                  above: above,
+                                                  below: below,
+                                                ),
+                                            };
+                                          },
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ],
+                                ),
                               ),
                             ),
                           ),

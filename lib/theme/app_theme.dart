@@ -127,24 +127,53 @@ abstract final class AppTheme {
         mouseCursor: WidgetStateMouseCursor.clickable,
       ),
       scrollbarTheme: ScrollbarThemeData(
-        thickness: const WidgetStatePropertyAll(20),
+        thickness: const WidgetStatePropertyAll(10),
         thumbVisibility: const WidgetStatePropertyAll(true),
-        trackVisibility: const WidgetStatePropertyAll(true),
+        trackVisibility: const WidgetStatePropertyAll(false),
         interactive: true,
-        radius: const Radius.circular(10),
-        minThumbLength: 84,
-        crossAxisMargin: 4,
-        mainAxisMargin: 6,
+        radius: const Radius.circular(5),
+        minThumbLength: 48,
+        crossAxisMargin: 2,
+        mainAxisMargin: 4,
         thumbColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.dragged) ||
-              states.contains(WidgetState.hovered)) {
-            return lime;
+          if (states.contains(WidgetState.dragged)) {
+            return paperMuted.withValues(alpha: 0.8);
           }
-          return paper.withValues(alpha: 0.72);
+          if (states.contains(WidgetState.hovered)) {
+            return paperMuted.withValues(alpha: 0.62);
+          }
+          return paperMuted.withValues(alpha: 0.34);
         }),
-        trackColor: WidgetStatePropertyAll(paper.withValues(alpha: 0.1)),
+        trackColor: const WidgetStatePropertyAll(Color(0x00000000)),
         trackBorderColor: const WidgetStatePropertyAll(Color(0x00000000)),
       ),
     );
+  }
+}
+
+/// Desktop scrollbars sit in their own gutter, so list controls stay clear of the thumb.
+class AppScrollBehavior extends MaterialScrollBehavior {
+  const AppScrollBehavior();
+
+  static const gutter = 14.0;
+
+  @override
+  Widget buildScrollbar(
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) {
+    switch (axisDirectionToAxis(details.direction)) {
+      case Axis.horizontal:
+        return child;
+      case Axis.vertical:
+        return Scrollbar(
+          controller: details.controller,
+          child: Padding(
+            padding: const EdgeInsets.only(right: gutter),
+            child: child,
+          ),
+        );
+    }
   }
 }
