@@ -185,9 +185,8 @@ class DesktopShell extends ChangeNotifier with WindowListener {
       await windowManager.setMaximumSize(size);
     }
     await windowManager.setSize(size);
-    if ((top - pos.dy).abs() > 0.5 || (left - pos.dx).abs() > 0.5) {
-      await windowManager.setPosition(Offset(left, top));
-    }
+    // Windows moves the window to the top-left when min and max are locked.
+    await windowManager.setPosition(Offset(left, top));
   }
 
   Future<void> exitCompactMode() async {
