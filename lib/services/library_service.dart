@@ -1929,7 +1929,7 @@ class LibraryService extends ChangeNotifier {
     await _settings.setArtistPhotoPath(from, null);
   }
 
-  /// Genius → Deezer portraits for library artists (skips manual picks).
+  /// Yandex Music → Genius → Deezer portraits (skips manual picks).
   /// Returns how many photos were written.
   Future<int> refreshArtistPhotos() async {
     if (_artistPhotosRefreshing || _tracks.isEmpty) return 0;

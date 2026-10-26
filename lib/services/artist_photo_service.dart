@@ -21,9 +21,8 @@ class ArtistPhotoProgress {
 }
 
 /// Resolves artist portraits without API keys:
-/// Yandex Music → Genius → Deezer → TheAudioDB → iTunes → MusicBrainz/Wikidata.
+/// Yandex Music → Genius → Deezer.
 class ArtistPhotoService {
-  // MusicBrainz asks for an identifying User-Agent.
   static const _ua = 'FreedomMusic/1.0 (local music player; artist photos)';
   static const _uaBrowser =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
@@ -49,10 +48,6 @@ class ArtistPhotoService {
       _yandexMusicImageUrl,
       _geniusImageUrl,
       _deezerImageUrl,
-      _audioDbImageUrl,
-      _itunesImageUrl,
-      _musicBrainzImageUrl,
-      _wikidataSearchImageUrl,
     ];
     for (final lookup in lookups) {
       final url = await lookup(name);
@@ -180,177 +175,6 @@ class ArtistPhotoService {
       }
     }
     return null;
-  }
-
-  /// Free test key `2` is documented by TheAudioDB for non-commercial use.
-  Future<String?> _audioDbImageUrl(String artist) async {
-    final data = await _getJson(
-      Uri.https('www.theaudiodb.com', '/api/v1/json/2/search.php', {
-        's': artist,
-      }),
-      delay: const Duration(milliseconds: 220),
-    );
-    final list = data?['artists'];
-    if (list is! List || list.isEmpty) return null;
-
-    for (final raw in list) {
-      if (raw is! Map) continue;
-      final map = Map<String, dynamic>.from(raw);
-      final found = '${map['strArtist'] ?? ''}';
-      if (!_artistClose(artist, found)) continue;
-      for (final key in [
-        'strArtistThumb',
-        'strArtistWideThumb',
-        'strArtistFanart',
-        'strArtistFanart2',
-      ]) {
-        final url = '${map[key] ?? ''}'.trim();
-        if (url.isNotEmpty && url.toLowerCase() != 'null') return url;
-      }
-    }
-    return null;
-  }
-
-  Future<String?> _itunesImageUrl(String artist) async {
-    for (final country in ['ru', 'us']) {
-      final data = await _getJson(
-        Uri.https('itunes.apple.com', '/search', {
-          'term': artist,
-          'media': 'music',
-          'entity': 'musicArtist',
-          'limit': '8',
-          'country': country,
-        }),
-        delay: const Duration(milliseconds: 200),
-      );
-      final list = data?['results'];
-      if (list is! List || list.isEmpty) continue;
-
-      for (final raw in list) {
-        if (raw is! Map) continue;
-        final map = Map<String, dynamic>.from(raw);
-        final found = '${map['artistName'] ?? ''}';
-        if (!_artistClose(artist, found)) continue;
-        final art = '${map['artworkUrl100'] ?? map['artworkUrl60'] ?? ''}'.trim();
-        if (art.isEmpty) continue;
-        return art
-            .replaceAll(RegExp(r'\d+x\d+bb'), '600x600bb')
-            .replaceAll(RegExp(r'\d+x\d+'), '600x600');
-      }
-    }
-    return null;
-  }
-
-  Future<String?> _musicBrainzImageUrl(String artist) async {
-    final q = artist.replaceAll('"', '');
-    final data = await _getJson(
-      Uri.https('musicbrainz.org', '/ws/2/artist/', {
-        'query': 'artist:"$q"',
-        'fmt': 'json',
-        'limit': '6',
-      }),
-      delay: const Duration(milliseconds: 1100),
-    );
-    final list = data?['artists'];
-    if (list is! List || list.isEmpty) return null;
-
-    for (final raw in list) {
-      if (raw is! Map) continue;
-      final map = Map<String, dynamic>.from(raw);
-      final found = '${map['name'] ?? ''}';
-      if (!_artistClose(artist, found)) continue;
-      final id = '${map['id'] ?? ''}';
-      if (id.isEmpty) continue;
-
-      final detail = await _getJson(
-        Uri.https('musicbrainz.org', '/ws/2/artist/$id', {
-          'inc': 'url-rels',
-          'fmt': 'json',
-        }),
-        delay: const Duration(milliseconds: 1100),
-      );
-      final rels = detail?['relations'];
-      if (rels is! List) continue;
-
-      String? wikidata;
-      for (final relRaw in rels) {
-        if (relRaw is! Map) continue;
-        final rel = Map<String, dynamic>.from(relRaw);
-        final type = '${rel['type'] ?? ''}';
-        final urlMap = rel['url'];
-        final resource =
-            urlMap is Map ? '${urlMap['resource'] ?? ''}'.trim() : '';
-        if (resource.isEmpty) continue;
-        if (type == 'image') return resource;
-        if (type == 'wikidata') wikidata ??= resource;
-      }
-      if (wikidata != null) {
-        final qid = RegExp(r'Q\d+').firstMatch(wikidata)?.group(0);
-        if (qid != null) {
-          final img = await _wikidataP18(qid);
-          if (img != null) return img;
-        }
-      }
-    }
-    return null;
-  }
-
-  Future<String?> _wikidataSearchImageUrl(String artist) async {
-    final data = await _getJson(
-      Uri.https('www.wikidata.org', '/w/api.php', {
-        'action': 'wbsearchentities',
-        'search': artist,
-        'language': 'en',
-        'uselang': 'ru',
-        'type': 'item',
-        'format': 'json',
-        'limit': '8',
-      }),
-      delay: const Duration(milliseconds: 300),
-    );
-    final list = data?['search'];
-    if (list is! List || list.isEmpty) return null;
-
-    for (final raw in list) {
-      if (raw is! Map) continue;
-      final map = Map<String, dynamic>.from(raw);
-      final found = '${map['label'] ?? ''}';
-      final id = '${map['id'] ?? ''}';
-      if (id.isEmpty || !_artistClose(artist, found)) continue;
-      final img = await _wikidataP18(id);
-      if (img != null) return img;
-    }
-    return null;
-  }
-
-  Future<String?> _wikidataP18(String qid) async {
-    final data = await _getJson(
-      Uri.https('www.wikidata.org', '/w/api.php', {
-        'action': 'wbgetentities',
-        'ids': qid,
-        'props': 'claims',
-        'format': 'json',
-      }),
-      delay: const Duration(milliseconds: 250),
-    );
-    final entities = data?['entities'];
-    if (entities is! Map) return null;
-    final entity = entities[qid];
-    if (entity is! Map) return null;
-    final claims = entity['claims'];
-    if (claims is! Map) return null;
-    final p18 = claims['P18'];
-    if (p18 is! List || p18.isEmpty) return null;
-    final first = p18.first;
-    if (first is! Map) return null;
-    final mainsnak = first['mainsnak'];
-    if (mainsnak is! Map) return null;
-    final datavalue = mainsnak['datavalue'];
-    if (datavalue is! Map) return null;
-    final filename = '${datavalue['value'] ?? ''}'.trim();
-    if (filename.isEmpty) return null;
-    return 'https://commons.wikimedia.org/wiki/Special:FilePath/'
-        '${Uri.encodeComponent(filename)}?width=800';
   }
 
   Future<Uint8List?> _download(String url) async {
