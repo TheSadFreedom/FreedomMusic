@@ -63,13 +63,13 @@ IDI_APP_ICON            ICON                    "resources\\app_icon.ico"
 #if defined(FLUTTER_VERSION_MAJOR) && defined(FLUTTER_VERSION_MINOR) && defined(FLUTTER_VERSION_PATCH) && defined(FLUTTER_VERSION_BUILD)
 #define VERSION_AS_NUMBER FLUTTER_VERSION_MAJOR,FLUTTER_VERSION_MINOR,FLUTTER_VERSION_PATCH,FLUTTER_VERSION_BUILD
 #else
-#define VERSION_AS_NUMBER 1,0,10,11
+#define VERSION_AS_NUMBER 1,0,11,12
 #endif
 
 #if defined(FLUTTER_VERSION)
 #define VERSION_AS_STRING FLUTTER_VERSION
 #else
-#define VERSION_AS_STRING "1.0.10"
+#define VERSION_AS_STRING "1.0.11"
 #endif
 
 VS_VERSION_INFO VERSIONINFO
@@ -92,9 +92,9 @@ BEGIN
             VALUE "CompanyName", "com.freedommusic" "\0"
             VALUE "FileDescription", "Freedom Music" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "freedom_music" "\0"
+            VALUE "InternalName", "Freedom Music" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.freedommusic. All rights reserved." "\0"
-            VALUE "OriginalFilename", "freedom_music.exe" "\0"
+            VALUE "OriginalFilename", "Freedom Music.exe" "\0"
             VALUE "ProductName", "Freedom Music" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END

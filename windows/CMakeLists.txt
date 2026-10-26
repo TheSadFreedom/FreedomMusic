@@ -2,9 +2,10 @@
 cmake_minimum_required(VERSION 3.14)
 project(freedom_music LANGUAGES CXX)
 
-# The name of the executable created for the application. Change this to change
-# the on-disk name of your application.
-set(BINARY_NAME "freedom_music")
+# The on-disk name. Flutter looks for this file. A CMake target cannot contain
+# a space, so the target id stays RUNNER_TARGET.
+set(BINARY_NAME "Freedom Music")
+set(RUNNER_TARGET "freedom_music")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
@@ -57,15 +58,19 @@ add_subdirectory("runner")
 
 
 # Generated plugin build rules, which manage building the plugins and adding
-# them to the application.
-include(flutter/generated_plugins.cmake)
+# them to the application. The generated file links ${BINARY_NAME}; that value
+# has a space, so point the link line at the target id.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/flutter/generated_plugins.cmake" _plugins)
+string(REPLACE "\${BINARY_NAME}" "\${RUNNER_TARGET}" _plugins "${_plugins}")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generated_plugins_runner.cmake" "${_plugins}")
+include("${CMAKE_CURRENT_BINARY_DIR}/generated_plugins_runner.cmake")
 
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can
 # run in place. This is done instead of making a separate bundle (as on Linux)
 # so that building and running from within Visual Studio will work.
-set(BUILD_BUNDLE_DIR "$<TARGET_FILE_DIR:${BINARY_NAME}>")
+set(BUILD_BUNDLE_DIR "$<TARGET_FILE_DIR:${RUNNER_TARGET}>")
 # Make the "install" step default, as it's required to run.
 set(CMAKE_VS_INCLUDE_INSTALL_TO_DEFAULT_BUILD 1)
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
@@ -75,7 +80,7 @@ endif()
 set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 
-install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
+install(TARGETS ${RUNNER_TARGET} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
