@@ -122,6 +122,111 @@ class LibraryService extends ChangeNotifier {
 
   AppPaths get paths => _paths;
   List<Track> get tracks => _tracks;
+
+  List<Track>? _catalogCache;
+  List<Track>? _battleCache;
+  Map<String, List<Track>>? _genreCache;
+  Map<String, List<Track>>? _artistCache;
+  Map<String, List<Track>>? _producerCache;
+  Map<String, List<Track>>? _battleArtistCache;
+  List<ReleaseCalendarSection>? _calendarCache;
+
+  void _dropSlices() {
+    _catalogCache = null;
+    _battleCache = null;
+    _genreCache = null;
+    _artistCache = null;
+    _producerCache = null;
+    _battleArtistCache = null;
+    _calendarCache = null;
+  }
+
+  void _ensureTrackSlices() {
+    if (_catalogCache != null) return;
+    final catalog = <Track>[];
+    final battle = <Track>[];
+    final genre = <String, List<Track>>{};
+    final artist = <String, List<Track>>{};
+    final artistLabels = <String, String>{};
+    final producer = <String, List<Track>>{};
+    final producerLabels = <String, String>{};
+    final battleArtist = <String, List<Track>>{};
+    final battleLabels = <String, String>{};
+
+    for (final track in _tracks) {
+      if (track.isBattle) {
+        battle.add(track);
+        _putArtist(track, battleArtist, battleLabels);
+        continue;
+      }
+      catalog.add(track);
+      final name = track.displayGenre;
+      if (name.isNotEmpty) {
+        genre.putIfAbsent(name, () => []).add(track);
+      }
+      _putArtist(track, artist, artistLabels);
+      for (final raw in producerNames(track.producer)) {
+        final card = producerCardName(raw);
+        final label = producerLabels.putIfAbsent(card.toLowerCase(), () => card);
+        final list = producer.putIfAbsent(label, () => []);
+        if (!list.any((existing) => existing.trackKey == track.trackKey)) {
+          list.add(track);
+        }
+      }
+    }
+
+    _catalogCache = catalog;
+    _battleCache = battle;
+    _genreCache = _sortedTrackMap(genre);
+    _artistCache = _sortedTrackMap(artist);
+    _producerCache = _sortedTrackMap(producer);
+    _battleArtistCache = _sortedTrackMap(battleArtist);
+  }
+
+  void _putArtist(
+    Track track,
+    Map<String, List<Track>> map,
+    Map<String, String> labels,
+  ) {
+    for (final raw in track.artists) {
+      final card = artistCardName(raw);
+      final label = labels.putIfAbsent(card.toLowerCase(), () => card);
+      final list = map.putIfAbsent(label, () => []);
+      if (!list.any((existing) => existing.trackKey == track.trackKey)) {
+        list.add(track);
+      }
+    }
+  }
+
+  Map<String, List<Track>> _sortedTrackMap(Map<String, List<Track>> map) {
+    final keys = map.keys.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return {for (final key in keys) key: map[key]!};
+  }
+
+  /// Library without Battle-Rap. Main screens read this.
+  List<Track> get catalogTracks {
+    _ensureTrackSlices();
+    return _catalogCache!;
+  }
+
+  /// Battle-Rap only. Shown on the Battles page.
+  List<Track> get battleTracks {
+    _ensureTrackSlices();
+    return _battleCache!;
+  }
+
+  /// Named releases for the calendar. Rebuilt only when slices drop.
+  List<ReleaseCalendarSection> releaseCalendar() {
+    final cached = _calendarCache;
+    if (cached != null) return cached;
+    final sections = buildReleaseCalendar(
+      catalogTracks,
+      cardName: artistCardName,
+    );
+    _calendarCache = sections;
+    return sections;
+  }
   List<Playlist> get playlists => _playlists;
   bool get loading => _loading;
   bool get scanning => _scanning;
@@ -708,7 +813,11 @@ class LibraryService extends ChangeNotifier {
     var walked = 0;
     for (final track in _tracks) {
       if (_cancelFill) break;
-      if (track.isTrashed || trackMetaGaps(track).ready) continue;
+      if (track.isTrashed ||
+          track.isBattle ||
+          trackMetaGaps(track).ready) {
+        continue;
+      }
       walked++;
       if (_metadataSearchNeeded(track, producersOnly: producersOnly)) {
         tracks.add(track);
@@ -1139,58 +1248,25 @@ class LibraryService extends ChangeNotifier {
   }
 
   Map<String, List<Track>> tracksByGenre() {
-    final map = <String, List<Track>>{};
-    for (final t in _tracks) {
-      final genre = t.displayGenre;
-      if (genre.isEmpty) continue;
-      map.putIfAbsent(genre, () => []).add(t);
-    }
-    final keys = map.keys.toList()
-      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-    return {for (final k in keys) k: map[k]!};
+    _ensureTrackSlices();
+    return _genreCache!;
   }
 
+  /// One track can appear under several artists ("A, B" → A and B).
   Map<String, List<Track>> tracksByArtist() {
-    // One track can appear under several artists ("A, B" → A and B).
-    final map = <String, List<Track>>{};
-    final displayName = <String, String>{}; // lower -> preferred casing
-
-    for (final t in _tracks) {
-      for (final name in t.artists) {
-        final card = artistCardName(name);
-        final lower = card.toLowerCase();
-        final label = displayName.putIfAbsent(lower, () => card);
-        final list = map.putIfAbsent(label, () => []);
-        if (!list.any((existing) => existing.trackKey == t.trackKey)) {
-          list.add(t);
-        }
-      }
-    }
-
-    final keys = map.keys.toList()
-      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-    return {for (final k in keys) k: map[k]!};
+    _ensureTrackSlices();
+    return _artistCache!;
   }
 
   Map<String, List<Track>> tracksByProducer() {
-    final map = <String, List<Track>>{};
-    final displayName = <String, String>{};
+    _ensureTrackSlices();
+    return _producerCache!;
+  }
 
-    for (final t in _tracks) {
-      for (final name in producerNames(t.producer)) {
-        final card = producerCardName(name);
-        final lower = card.toLowerCase();
-        final label = displayName.putIfAbsent(lower, () => card);
-        final list = map.putIfAbsent(label, () => []);
-        if (!list.any((existing) => existing.trackKey == t.trackKey)) {
-          list.add(t);
-        }
-      }
-    }
-
-    final keys = map.keys.toList()
-      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-    return {for (final k in keys) k: map[k]!};
+  /// Battle-Rap tracks grouped by artist card. Same lifetime as [battleTracks].
+  Map<String, List<Track>> battleTracksByArtist() {
+    _ensureTrackSlices();
+    return _battleArtistCache!;
   }
 
   /// Tracks whose producer tag is empty. They have no producer card.
@@ -1277,6 +1353,7 @@ class LibraryService extends ChangeNotifier {
     _catalogIndex = null;
     _catalogQuery = null;
     _catalogHit = null;
+    _dropSlices();
   }
 
   _CatalogIndex _ensureCatalogIndex() {
@@ -1293,6 +1370,7 @@ class LibraryService extends ChangeNotifier {
     final tracks = <_IxTrack>[];
 
     for (final track in _tracks) {
+      if (track.isBattle) continue;
       final lyrics = track.lyrics?.trim();
       tracks.add(
         _IxTrack(
@@ -1618,6 +1696,7 @@ class LibraryService extends ChangeNotifier {
     }
     if (!placed) next.add(updated);
     _tracks = next;
+    _dropSlices();
     if (oldKey == updated.trackKey) return;
     _trackKeyAlias[oldKey] = updated.trackKey;
     final rewired = <String, String>{};
@@ -1926,7 +2005,8 @@ class LibraryService extends ChangeNotifier {
     if (pick == null) return null;
     final list = <Track>[
       for (final track in _tracks)
-        if (!track.isTrashed && pick(trackMetaGaps(track))) track,
+        if (!track.isTrashed && !track.isBattle && pick(trackMetaGaps(track)))
+          track,
     ];
     list.sort(_byArtistTitle);
     return list;
@@ -1936,7 +2016,10 @@ class LibraryService extends ChangeNotifier {
   List<Track> tracksMissingMetadata() {
     final list = <Track>[
       for (final track in _tracks)
-        if (!track.isTrashed && trackMetaGaps(track).core) track,
+        if (!track.isTrashed &&
+            !track.isBattle &&
+            trackMetaGaps(track).core)
+          track,
     ];
     list.sort(_byArtistTitle);
     return list;
@@ -1962,7 +2045,7 @@ class LibraryService extends ChangeNotifier {
     };
     var seen = 0;
     for (final track in _tracks) {
-      if (track.isTrashed) continue;
+      if (track.isTrashed || track.isBattle) continue;
       final gaps = trackMetaGaps(track);
       if (gaps.genre) groups[Playlist.kindMissingGenre]!.add(track);
       if (gaps.ready) {
@@ -2032,40 +2115,96 @@ class LibraryService extends ChangeNotifier {
       _genreMosaicCache[genre] ?? const [];
 
   final Map<String, List<String>> _genreMosaicCache = {};
+  final Map<int, String> _playlistMosaicSig = {};
+  final Map<String, String> _genreMosaicSig = {};
+
+  String _coverSetSig(Iterable<String?> paths) {
+    final buf = StringBuffer();
+    for (final path in paths) {
+      if (path == null || path.isEmpty) continue;
+      buf
+        ..write(path)
+        ..write('#')
+        ..write(cachedCoverFingerprint(path) ?? '?')
+        ..write('\u0001');
+    }
+    return buf.toString();
+  }
 
   Future<void> _refreshMosaics() async {
     final next = <int, List<String>>{};
+    final nextPlaylistSig = <int, String>{};
     final byKey = {for (final track in _tracks) track.trackKey: track};
+    var stepped = 0;
     for (final playlist in _playlists) {
       if (playlist.isSystem) continue;
       final cover = playlist.coverPath;
       if (cover != null && cover.isNotEmpty) continue;
       final keys = await _db.getPlaylistTrackKeys(playlist.id);
-      next[playlist.id] = pickPlaylistMosaic(
-        [for (final key in keys) byKey[key]?.coverPath],
-        seed: playlist.id,
-        identity: coverFingerprint,
-      );
+      final covers = [
+        for (final key in keys)
+          if (byKey[key]?.isBattle != true) byKey[key]?.coverPath,
+      ];
+      final known = _coverSetSig(covers);
+      final previous = _mosaicCache[playlist.id];
+      if (!known.contains('?') &&
+          known == _playlistMosaicSig[playlist.id] &&
+          previous != null) {
+        next[playlist.id] = previous;
+        nextPlaylistSig[playlist.id] = known;
+      } else {
+        next[playlist.id] = pickPlaylistMosaic(
+          covers,
+          seed: playlist.id,
+          identity: coverFingerprint,
+        );
+        nextPlaylistSig[playlist.id] = _coverSetSig(covers);
+        stepped++;
+        if (stepped % 8 == 0) await Future<void>.delayed(Duration.zero);
+      }
     }
     _mosaicCache = next;
+    _playlistMosaicSig
+      ..clear()
+      ..addAll(nextPlaylistSig);
 
     final byGenre = <String, List<String?>>{};
+    var walked = 0;
     for (final track in _tracks) {
+      if (track.isBattle) continue;
       final genre = track.displayGenre;
       if (genre.isEmpty) continue;
       byGenre.putIfAbsent(genre, () => []).add(track.coverPath);
+      walked++;
+      if (walked % 400 == 0) await Future<void>.delayed(Duration.zero);
     }
     final genres = <String, List<String>>{};
+    final nextGenreSig = <String, String>{};
     for (final entry in byGenre.entries) {
+      final known = _coverSetSig(entry.value);
+      final previous = _genreMosaicCache[entry.key];
+      if (!known.contains('?') &&
+          known == _genreMosaicSig[entry.key] &&
+          previous != null) {
+        genres[entry.key] = previous;
+        nextGenreSig[entry.key] = known;
+        continue;
+      }
       genres[entry.key] = pickPlaylistMosaic(
         entry.value,
         seed: stableSeed(entry.key),
         identity: coverFingerprint,
       );
+      nextGenreSig[entry.key] = _coverSetSig(entry.value);
+      stepped++;
+      if (stepped % 8 == 0) await Future<void>.delayed(Duration.zero);
     }
     _genreMosaicCache
       ..clear()
       ..addAll(genres);
+    _genreMosaicSig
+      ..clear()
+      ..addAll(nextGenreSig);
   }
 
   Future<List<Track>> playlistTracks(int id) async {

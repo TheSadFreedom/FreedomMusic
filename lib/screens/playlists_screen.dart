@@ -13,6 +13,7 @@ import '../theme/app_theme.dart';
 import '../utils/duration_format.dart';
 import '../utils/image_pick.dart';
 import '../widgets/ambient_backdrop.dart';
+import '../widgets/cover_image.dart';
 import '../widgets/listen_actions.dart';
 import '../widgets/screen_title.dart';
 import '../widgets/track_cover_play.dart';
@@ -567,7 +568,11 @@ class _CoverCard extends StatelessWidget {
     final systemKind = item.systemKind;
     Widget cover;
     if (path != null && File(path).existsSync()) {
-      cover = Image.file(File(path), fit: BoxFit.cover);
+      cover = fileCover(
+        context,
+        path,
+        logicalSize: width ?? 180,
+      );
     } else if (item.mosaic.isNotEmpty) {
       cover = PlaylistCoverMosaic(paths: item.mosaic);
     } else if (systemKind != null) {
@@ -860,11 +865,14 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
       body: FutureBuilder<List<Track>>(
         future: _future,
         builder: (context, snapshot) {
-          final tracks = live ??
+          final loaded = live ??
               [
                 for (final t in snapshot.data ?? const <Track>[])
                   library.resolveTrack(t),
               ];
+          final tracks = isTrash
+              ? loaded
+              : [for (final t in loaded) if (!t.isBattle) t];
           final filtered = _query.trim().isEmpty
               ? tracks
               : tracks
@@ -900,7 +908,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
               ),
               SliverToBoxAdapter(
                 child: _PlaylistHeader(
-                  playlist: liveList
+                  playlist: (liveList || snapshot.hasData)
                       ? pl.copyWith(trackCount: tracks.length)
                       : pl,
                   dateLabel: dateLabel,
@@ -1141,7 +1149,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
 
   Future<void> _addTrack(BuildContext context) async {
     final library = context.read<LibraryService>();
-    final all = library.tracks;
+    final all = library.catalogTracks;
     if (all.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Сначала отсканируйте библиотеку.')),
@@ -1428,7 +1436,11 @@ class _EditableCoverState extends State<_EditableCover> {
     final kind = widget.systemKind;
     Widget image;
     if (widget.path != null && File(widget.path!).existsSync()) {
-      image = Image.file(File(widget.path!), fit: BoxFit.cover);
+      image = fileCover(
+        context,
+        widget.path!,
+        logicalSize: widget.size,
+      );
     } else if (kind != null) {
       image = _SystemCover(kind: kind);
     } else if (widget.mosaic.isNotEmpty) {

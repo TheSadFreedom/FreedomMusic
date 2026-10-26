@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -9,6 +8,7 @@ import '../data/track_key.dart';
 import '../models/artist_release.dart';
 import '../services/library_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/cover_image.dart';
 import '../widgets/screen_title.dart';
 import '../widgets/track_overflow_menu.dart';
 import 'release_detail_screen.dart';
@@ -123,10 +123,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   @override
   Widget build(BuildContext context) {
     final library = context.watch<LibraryService>();
-    final sections = buildReleaseCalendar(
-      library.tracks,
-      cardName: library.artistCardName,
-    );
+    final sections = library.releaseCalendar();
     _syncKeys(sections.length);
     if (sections.isEmpty || _activeYear.value >= sections.length) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -514,7 +511,7 @@ class _ReleaseChip extends StatelessWidget {
                 child: SizedBox(
                   width: _kCoverSize,
                   height: _kCoverSize,
-                  child: _cover(path),
+                  child: _cover(context, path),
                 ),
               ),
               const SizedBox(height: 6),
@@ -558,12 +555,12 @@ class _ReleaseChip extends StatelessWidget {
   }
 }
 
-Widget _cover(String? path) {
+Widget _cover(BuildContext context, String? path) {
   if (path == null || path.isEmpty) return _kCoverFallback;
-  return Image.file(
-    File(path),
-    fit: BoxFit.cover,
-    filterQuality: FilterQuality.medium,
+  return fileCover(
+    context,
+    path,
+    logicalSize: _kCoverSize,
     errorBuilder: (context, error, stackTrace) => _kCoverFallback,
   );
 }

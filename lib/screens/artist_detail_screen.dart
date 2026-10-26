@@ -14,12 +14,32 @@ import '../theme/app_theme.dart';
 import '../utils/image_pick.dart';
 import '../utils/playlist_actions.dart';
 import '../widgets/ambient_backdrop.dart';
+import '../widgets/cover_image.dart';
 import '../widgets/listen_actions.dart';
 import '../widgets/track_cover_play.dart';
 import '../widgets/track_overflow_menu.dart';
 import '../widgets/track_meta_links.dart';
 import 'release_detail_screen.dart';
 import 'release_metadata_editor_screen.dart';
+
+Map<String, List<Track>> _artistsIn(
+  List<Track> source,
+  LibraryService library,
+) {
+  final map = <String, List<Track>>{};
+  final labels = <String, String>{};
+  for (final track in source) {
+    for (final name in track.artists) {
+      final card = library.artistCardName(name);
+      final label = labels.putIfAbsent(card.toLowerCase(), () => card);
+      final list = map.putIfAbsent(label, () => []);
+      if (!list.any((existing) => existing.trackKey == track.trackKey)) {
+        list.add(track);
+      }
+    }
+  }
+  return map;
+}
 
 /// Yandex Music–inspired artist page.
 class ArtistDetailScreen extends StatefulWidget {
@@ -31,6 +51,7 @@ class ArtistDetailScreen extends StatefulWidget {
     required this.chartRank,
     required this.trackPlayCounts,
     this.byProducer = false,
+    this.battleOnly = false,
   });
 
   final String artist;
@@ -40,14 +61,21 @@ class ArtistDetailScreen extends StatefulWidget {
   final Map<String, int> trackPlayCounts;
   final bool byProducer;
 
+  /// Battle card shows only Battle-Rap. The main card hides those tracks.
+  final bool battleOnly;
+
   @override
   State<ArtistDetailScreen> createState() => _ArtistDetailScreenState();
 }
 
 class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
+  List<Track> _genrePool(LibraryService library) {
+    return widget.battleOnly ? library.battleTracks : library.catalogTracks;
+  }
+
   List<Track> _liveTracks(LibraryService library) {
     final want = widget.artist.toLowerCase();
-    final live = library.tracks
+    final live = _genrePool(library)
         .where(
           (t) => widget.byProducer
               ? producerNames(t.producer).any(
@@ -60,7 +88,11 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                 ),
         )
         .toList(growable: false);
-    return live.isEmpty ? widget.tracks : live;
+    if (live.isNotEmpty) return live;
+    return [
+      for (final track in widget.tracks)
+        if (widget.battleOnly ? track.isBattle : !track.isBattle) track,
+    ];
   }
 
   List<_ProducerCollab> _collaborations(
@@ -147,7 +179,12 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
   Future<void> _mergePerson(BuildContext context) async {
     final library = context.read<LibraryService>();
     final producers = widget.byProducer;
-    final others = (producers ? library.tracksByProducer() : library.tracksByArtist())
+    final grouped = producers
+        ? library.tracksByProducer()
+        : widget.battleOnly
+            ? _artistsIn(library.battleTracks, library)
+            : library.tracksByArtist();
+    final others = grouped
         .keys
         .where((n) => n.toLowerCase() != widget.artist.toLowerCase())
         .toList()
@@ -234,8 +271,11 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
     }
     if (!context.mounted) return;
 
-    final byArtist =
-        producers ? library.tracksByProducer() : library.tracksByArtist();
+    final byArtist = producers
+        ? library.tracksByProducer()
+        : widget.battleOnly
+            ? _artistsIn(library.battleTracks, library)
+            : library.tracksByArtist();
     var tracks = <Track>[];
     for (final e in byArtist.entries) {
       if (e.key.toLowerCase() == widget.artist.toLowerCase()) {
@@ -260,6 +300,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
           chartRank: widget.chartRank,
           trackPlayCounts: counts,
           byProducer: widget.byProducer,
+          battleOnly: widget.battleOnly,
         ),
       ),
     );
@@ -289,7 +330,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
         ? null
         : groupArtistReleases(
             artistTracks: tracks,
-            libraryTracks: library.tracks,
+            libraryTracks: _genrePool(library),
             isThisArtist: (name) =>
                 library.artistCardName(name).toLowerCase() ==
                 widget.artist.toLowerCase(),
@@ -455,6 +496,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                         artist: widget.artist,
                         section: _ReleaseSection.albums,
                         playCountsByKey: widget.trackPlayCounts,
+                        battleOnly: widget.battleOnly,
                       ),
                     ),
                   );
@@ -481,6 +523,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                         artist: widget.artist,
                         section: _ReleaseSection.eps,
                         playCountsByKey: widget.trackPlayCounts,
+                        battleOnly: widget.battleOnly,
                       ),
                     ),
                   );
@@ -507,6 +550,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                         artist: widget.artist,
                         section: _ReleaseSection.singles,
                         playCountsByKey: widget.trackPlayCounts,
+                        battleOnly: widget.battleOnly,
                       ),
                     ),
                   );
@@ -533,6 +577,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
                         artist: widget.artist,
                         section: _ReleaseSection.appearances,
                         playCountsByKey: widget.trackPlayCounts,
+                        battleOnly: widget.battleOnly,
                       ),
                     ),
                   );
@@ -756,7 +801,12 @@ class _ArtistPhoto extends StatelessWidget {
               color: AppTheme.mossBright,
             ),
           )
-        : Image.file(file, fit: BoxFit.cover);
+        : fileCover(
+            context,
+            file.path,
+            logicalSize: size,
+            filterQuality: FilterQuality.high,
+          );
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -1111,7 +1161,7 @@ class _CollabCard extends StatelessWidget {
       child: Icon(Icons.person_rounded, color: AppTheme.mossBright, size: 40),
     );
     if (path != null && File(path).existsSync()) {
-      cover = Image.file(File(path), fit: BoxFit.cover);
+      cover = fileCover(context, path, logicalSize: width ?? 148);
     }
 
     return InkWell(
@@ -1428,7 +1478,7 @@ class _ReleaseCard extends StatelessWidget {
     );
     final path = context.read<LibraryService>().releaseCover(release);
     if (path != null && File(path).existsSync()) {
-      cover = Image.file(File(path), fit: BoxFit.cover);
+      cover = fileCover(context, path, logicalSize: width ?? 148);
     }
 
     return TrackContextMenu(
@@ -1508,11 +1558,13 @@ class _ArtistAllReleasesScreen extends StatelessWidget {
     required this.artist,
     required this.section,
     required this.playCountsByKey,
+    this.battleOnly = false,
   });
 
   final String artist;
   final _ReleaseSection section;
   final Map<String, int> playCountsByKey;
+  final bool battleOnly;
 
   String get _sectionTitle {
     switch (section) {
@@ -1529,7 +1581,9 @@ class _ArtistAllReleasesScreen extends StatelessWidget {
 
   List<ArtistRelease> _releases(LibraryService library) {
     final want = artist.toLowerCase();
-    final tracks = library.tracks
+    final pool =
+        battleOnly ? library.battleTracks : library.catalogTracks;
+    final tracks = pool
         .where(
           (track) => track.artists.any(
             (name) => library.artistCardName(name).toLowerCase() == want,
@@ -1538,7 +1592,7 @@ class _ArtistAllReleasesScreen extends StatelessWidget {
         .toList(growable: false);
     final groups = groupArtistReleases(
       artistTracks: tracks,
-      libraryTracks: library.tracks,
+      libraryTracks: pool,
       isThisArtist: (name) =>
           library.artistCardName(name).toLowerCase() == want,
       cardName: library.artistCardName,

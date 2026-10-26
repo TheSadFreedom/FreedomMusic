@@ -156,6 +156,15 @@ class QueueMusicGlyph extends StatelessWidget {
   }
 }
 
+class BattlesGlyph extends StatelessWidget {
+  const BattlesGlyph({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Icon(Icons.sports_mma_outlined);
+  }
+}
+
 class DriveFileMoveGlyph extends StatelessWidget {
   const DriveFileMoveGlyph({super.key});
 

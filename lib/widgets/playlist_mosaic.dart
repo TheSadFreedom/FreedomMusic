@@ -1,10 +1,9 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../services/library_service.dart';
 import '../theme/app_theme.dart';
+import 'cover_image.dart';
 
 /// Track-cover collage for a user playlist that has no chosen cover.
 class PlaylistMosaicLoader extends StatelessWidget {
@@ -35,45 +34,54 @@ class PlaylistCoverMosaic extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (paths.isEmpty) return const ColoredBox(color: AppTheme.inkLift);
-    if (paths.length == 1) return _image(paths.first);
-    final cells = [for (var i = 0; i < 4; i++) paths[i % paths.length]];
-    return Column(
-      children: [
-        Expanded(
-          child: Row(
-            children: [
-              _cell(cells[0]),
-              _cell(cells[1]),
-            ],
-          ),
-        ),
-        Expanded(
-          child: Row(
-            children: [
-              _cell(cells[2]),
-              _cell(cells[3]),
-            ],
-          ),
-        ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final side = constraints.maxWidth.isFinite && constraints.maxWidth > 0
+            ? constraints.maxWidth
+            : 148.0;
+        if (paths.length == 1) return _image(context, paths.first, side);
+        final cell = side / 2;
+        final cells = [for (var i = 0; i < 4; i++) paths[i % paths.length]];
+        return Column(
+          children: [
+            Expanded(
+              child: Row(
+                children: [
+                  _cell(context, cells[0], cell),
+                  _cell(context, cells[1], cell),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Row(
+                children: [
+                  _cell(context, cells[2], cell),
+                  _cell(context, cells[3], cell),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
-  Widget _cell(String? path) {
+  Widget _cell(BuildContext context, String? path, double logicalSize) {
     return Expanded(
       child: Padding(
         padding: const EdgeInsets.all(1),
         child: path == null
             ? const ColoredBox(color: AppTheme.inkLift)
-            : _image(path),
+            : _image(context, path, logicalSize),
       ),
     );
   }
 
-  Widget _image(String path) {
-    return Image.file(
-      File(path),
-      fit: BoxFit.cover,
+  Widget _image(BuildContext context, String path, double logicalSize) {
+    return fileCover(
+      context,
+      path,
+      logicalSize: logicalSize,
       errorBuilder: (context, error, stackTrace) =>
           const ColoredBox(color: AppTheme.inkLift),
     );

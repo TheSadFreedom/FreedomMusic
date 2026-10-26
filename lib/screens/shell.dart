@@ -15,6 +15,7 @@ import '../widgets/app_title_bar.dart';
 import '../widgets/compact_player.dart';
 import '../widgets/kept_icons.dart';
 import 'artists_screen.dart';
+import 'battles_screen.dart';
 import 'calendar_screen.dart';
 import 'chart_screen.dart';
 import 'home_screen.dart';
@@ -31,9 +32,12 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   int _index = 0;
 
+  /// Tabs stay alive after the first visit, but a hidden one is not laid out.
+  final Set<int> _openedTabs = {0};
+
   /// Per-tab navigators so detail pages don't cover the mini player.
   final List<GlobalKey<NavigatorState>> _navKeys = List.generate(
-    7,
+    8,
     (_) => GlobalKey<NavigatorState>(),
   );
 
@@ -85,14 +89,20 @@ class _AppShellState extends State<AppShell> {
       label: 'Плейлисты',
     ),
     _NavItem(
+      icon: Icons.sports_mma_outlined,
+      selectedIcon: Icons.sports_mma_outlined,
+      label: 'Баттлы',
+      glyph: BattlesGlyph(),
+    ),
+    _NavItem(
       icon: Icons.settings_outlined,
       selectedIcon: Icons.settings,
       label: 'Настройки',
     ),
   ];
 
-  static const _topCount = 6;
-  static const _settingsIndex = 6;
+  static const _topCount = 7;
+  static const _settingsIndex = 7;
 
   Widget _tabRoot(int index) {
     final page = switch (index) {
@@ -102,6 +112,7 @@ class _AppShellState extends State<AppShell> {
       3 => const ChartScreen(),
       4 => const CalendarScreen(),
       5 => const PlaylistsScreen(),
+      6 => const BattlesScreen(),
       _ => const SettingsScreen(),
     };
 
@@ -116,6 +127,7 @@ class _AppShellState extends State<AppShell> {
               3 => const Color(0xFF8B6B3D),
               4 => const Color(0xFF3D6E8B),
               5 => const Color(0xFF5A3A6E),
+              6 => const Color(0xFF8B3D3D),
               _ => AppTheme.moss,
             },
             secondary: switch (index) {
@@ -123,6 +135,7 @@ class _AppShellState extends State<AppShell> {
               4 => const Color(0xFF2A4A5C),
               3 => const Color(0xFF5A3A2A),
               2 => const Color(0xFF3A4A2A),
+              6 => const Color(0xFF4A2A2A),
               _ => const Color(0xFF2A4A5C),
             },
           ),
@@ -132,8 +145,10 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _select(int i) {
+    final firstVisit = _openedTabs.add(i);
     if (i == _index) {
       _navKeys[i].currentState?.popUntil((r) => r.isFirst);
+      if (firstVisit) setState(() {});
       return;
     }
     setState(() => _index = i);
@@ -223,24 +238,29 @@ class _AppShellState extends State<AppShell> {
           ),
         if (wide) const VerticalDivider(width: 1),
         Expanded(
-          child: IndexedStack(
-            index: _index,
+          child: Stack(
+            fit: StackFit.expand,
             children: [
               for (var i = 0; i < _navItems.length; i++)
-                // Stop tickers on hidden tabs — otherwise HomeStage / old
-                // backdrops kept animating and leaking GPU memory.
-                TickerMode(
-                  enabled: i == _index,
-                  child: Navigator(
-                    key: _navKeys[i],
-                    onGenerateRoute: (settings) {
-                      return MaterialPageRoute<void>(
-                        settings: settings,
-                        builder: (_) => _tabRoot(i),
-                      );
-                    },
+                if (_openedTabs.contains(i))
+                  // Hidden tabs keep their navigator, but Offstage skips
+                  // layout and paint. Tickers stay off so backdrops do not
+                  // animate in the background.
+                  Offstage(
+                    offstage: i != _index,
+                    child: TickerMode(
+                      enabled: i == _index,
+                      child: Navigator(
+                        key: _navKeys[i],
+                        onGenerateRoute: (settings) {
+                          return MaterialPageRoute<void>(
+                            settings: settings,
+                            builder: (_) => _tabRoot(i),
+                          );
+                        },
+                      ),
+                    ),
                   ),
-                ),
             ],
           ),
         ),

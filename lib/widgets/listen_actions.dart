@@ -17,7 +17,8 @@ class ListenActions extends StatelessWidget {
   final bool center;
 
   static const yellow = Color(0xFFFFDB4D);
-  static const _h = 48.0;
+  static const buttonHeight = 48.0;
+  static const _h = buttonHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -30,6 +31,8 @@ class ListenActions extends StatelessWidget {
             foregroundColor: Colors.black,
             padding: const EdgeInsets.symmetric(horizontal: 22),
             shape: const StadiumBorder(),
+            enabledMouseCursor: SystemMouseCursors.click,
+            disabledMouseCursor: SystemMouseCursors.basic,
             textStyle: GoogleFonts.figtree(
               fontWeight: FontWeight.w800,
               fontSize: 15,
@@ -45,6 +48,9 @@ class ListenActions extends StatelessWidget {
         width: _h,
         height: _h,
         child: IconButton.filled(
+          mouseCursor: onShuffle == null
+              ? SystemMouseCursors.basic
+              : SystemMouseCursors.click,
           style: IconButton.styleFrom(
             backgroundColor: yellow,
             foregroundColor: Colors.black,

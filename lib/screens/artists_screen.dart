@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../models/track.dart';
 import '../services/library_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/cover_image.dart';
 import '../widgets/screen_title.dart';
 import 'artist_detail_screen.dart';
 
@@ -311,11 +312,13 @@ class _ArtistGridTile extends StatelessWidget {
     );
     final path = photoPath;
     if (path != null) {
-      avatar = Image.file(
-        File(path),
-        fit: BoxFit.cover,
-        width: double.infinity,
-        height: double.infinity,
+      avatar = fileCover(
+        context,
+        path,
+        // Decode a bit above the largest tile size so wide windows / high-DPI
+        // displays never upscale the portrait; the cache caps this at 640px.
+        logicalSize: 360,
+        filterQuality: FilterQuality.high,
         errorBuilder: (_, _, _) => Icon(
           icon,
           color: AppTheme.paperMuted.withValues(alpha: 0.7),

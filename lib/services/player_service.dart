@@ -239,6 +239,7 @@ class PlayerService extends ChangeNotifier {
   bool _engineArmed = false;
 
   List<Track> _queue = [];
+  int _queueEpoch = 0;
   int _index = -1;
   bool _shuffle = true;
   PlayRepeatMode _repeat = PlayRepeatMode.off;
@@ -265,6 +266,9 @@ class PlayerService extends ChangeNotifier {
       (_index >= 0 && _index < _queue.length) ? _queue[_index] : null;
 
   List<Track> get queue => List.unmodifiable(_queue);
+
+  /// Changes when the queue list is replaced, not on each playback tick.
+  int get queueEpoch => _queueEpoch;
   int get queueIndex => _index;
 
   bool get playing {
@@ -312,6 +316,7 @@ class PlayerService extends ChangeNotifier {
     // setSource on Windows posts events from a background thread and can
     // kill the process during startup (FormatException / Lost connection).
     _queue = restored;
+    _queueEpoch++;
     _index = index;
     final posMs = _settings.playbackPositionMs;
     _position = posMs > 0 ? Duration(milliseconds: posMs) : Duration.zero;
@@ -387,7 +392,7 @@ class PlayerService extends ChangeNotifier {
 
   Future<void> playRandomAll() async {
     _armEngine();
-    final tracks = _withExistingFiles(_library.tracks);
+    final tracks = _withExistingFiles(_library.catalogTracks);
     if (tracks.isEmpty) return;
     tracks.shuffle(_random);
     await _setQueue(tracks, startIndex: 0, autoplay: true);
@@ -452,6 +457,7 @@ class PlayerService extends ChangeNotifier {
       await _secondary.stop();
     } catch (_) {}
     _queue = [];
+    _queueEpoch++;
     _index = -1;
     _position = Duration.zero;
     _duration = null;
@@ -493,6 +499,7 @@ class PlayerService extends ChangeNotifier {
       ..._queue.sublist(_index + 1),
     ]..shuffle(_random);
     _queue = [current, ...others];
+    _queueEpoch++;
     _index = 0;
   }
 
@@ -602,6 +609,7 @@ class PlayerService extends ChangeNotifier {
 
     final item = _queue.removeAt(oldIndex);
     _queue.insert(newIndex, item);
+    _queueEpoch++;
 
     if (_index == oldIndex) {
       _index = newIndex;
@@ -643,6 +651,7 @@ class PlayerService extends ChangeNotifier {
     final wasCurrent = current?.trackKey == trackKey;
     final nextAfter = _index < _queue.length - 1 ? _index : _index - 1;
     _queue = [for (final t in _queue) if (t.trackKey != trackKey) t];
+    _queueEpoch++;
     if (_queue.isEmpty) {
       _index = -1;
       await _cancelCrossfade();
@@ -667,6 +676,7 @@ class PlayerService extends ChangeNotifier {
     required bool autoplay,
   }) async {
     _queue = tracks;
+    _queueEpoch++;
     await _playIndex(startIndex, autoplay: autoplay);
   }
 

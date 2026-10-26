@@ -73,3 +73,6 @@ String? coverFingerprint(String path) {
 void forgetCoverFingerprint(String path) {
   _fingerprints.remove(path);
 }
+
+/// Fingerprint already computed for [path], without reading the file.
+String? cachedCoverFingerprint(String path) => _fingerprints[path];

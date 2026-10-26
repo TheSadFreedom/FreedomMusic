@@ -15,6 +15,7 @@ import '../theme/app_theme.dart';
 import '../utils/breakpoints.dart';
 import '../utils/duration_format.dart';
 import '../utils/lyrics_format.dart';
+import 'kept_icons.dart';
 import 'lyrics_view.dart';
 import 'track_overflow_menu.dart';
 import 'track_title_line.dart';
@@ -113,9 +114,14 @@ class _MiniPlayerState extends State<MiniPlayer> {
 
   @override
   Widget build(BuildContext context) {
-    final player = context.watch<PlayerService>();
+    final track = context.select<PlayerService, Track?>((p) => p.current);
+    context.select<PlayerService, bool>((p) => p.playing);
+    context.select<PlayerService, bool>((p) => p.shuffle);
+    context.select<PlayerService, PlayRepeatMode>((p) => p.repeat);
+    context.select<PlayerService, double>((p) => p.volume);
+    context.select<PlayerService, int>((p) => p.queueEpoch);
+    final player = context.read<PlayerService>();
     final library = context.watch<LibraryService>();
-    final track = player.current;
     if (track == null) {
       _hideVolume();
       if (_showLyrics) _showLyrics = false;
@@ -123,12 +129,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
       return const SizedBox.shrink();
     }
 
-    final progress =
-        player.duration == null || player.duration!.inMilliseconds == 0
-        ? 0.0
-        : player.position.inMilliseconds / player.duration!.inMilliseconds;
-    final libTrack = library.trackByKey(track.trackKey);
-    final lyricsSource = libTrack ?? track;
+    final lyricsSource = library.resolveTrack(track);
     final lyricsText = formatLyrics(lyricsSource.lyrics);
     final lyricsFetching = library.isFetchingLyrics(track.trackKey);
     final lyricsFailed = library.lyricsLookupFailed(track.trackKey);
@@ -150,6 +151,17 @@ class _MiniPlayerState extends State<MiniPlayer> {
         _showQueue = false;
         _showLyrics = opening;
       });
+      // The stage lives in the player overlay, outside this build. Publish
+      // now, while the click is still handling, so the text is not left closed.
+      final willFetch = opening && lyricsText.isEmpty;
+      context.read<LyricsPresentation>().update(
+        visible: opening,
+        title: track.displayTitle,
+        note: track.displayNote,
+        raw: lyricsSource.lyrics,
+        fetching: willFetch || lyricsFetching,
+        notFound: !willFetch && lyricsFailed && lyricsText.isEmpty,
+      );
       if (opening && lyricsText.isEmpty) {
         library.ensureRemoteLyrics(lyricsSource).then((updated) {
           if (updated != null) player.syncTrack(updated);
@@ -165,16 +177,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
       });
     }
 
-    final progressStrip = _ProgressStrip(
-      progress: progress.clamp(0.0, 1.0),
-      position: player.position,
-      duration: player.duration,
-      enabled: player.duration != null,
-      onSeek: (v) {
-        final total = player.duration!.inMilliseconds;
-        player.seek(Duration(milliseconds: (total * v).round()));
-      },
-    );
+    const progressStrip = _LiveProgressStrip();
 
     final panels = AnimatedCrossFade(
       firstChild: const SizedBox(width: double.infinity, height: 0),
@@ -217,6 +220,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                   children: [
                     _IconBtn(
                       icon: Icons.lyrics_outlined,
+                      mark: const LyricsGlyph(),
                       active: _showLyrics,
                       tooltip: lyricsText.isNotEmpty
                           ? 'Текст'
@@ -283,6 +287,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                   const SizedBox(width: 4),
                   _IconBtn(
                     icon: Icons.lyrics_outlined,
+                    mark: const LyricsGlyph(),
                     active: _showLyrics,
                     tooltip: lyricsText.isNotEmpty
                         ? 'Текст'
@@ -407,6 +412,30 @@ class _MiniPlayerState extends State<MiniPlayer> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _LiveProgressStrip extends StatelessWidget {
+  const _LiveProgressStrip();
+
+  @override
+  Widget build(BuildContext context) {
+    final position = context.select<PlayerService, Duration>((p) => p.position);
+    final duration = context.select<PlayerService, Duration?>((p) => p.duration);
+    final player = context.read<PlayerService>();
+    final total = duration?.inMilliseconds ?? 0;
+    final progress = total == 0 ? 0.0 : position.inMilliseconds / total;
+    return _ProgressStrip(
+      progress: progress.clamp(0.0, 1.0),
+      position: position,
+      duration: duration,
+      enabled: duration != null && total > 0,
+      onSeek: (v) {
+        final ms = player.duration?.inMilliseconds ?? 0;
+        if (ms <= 0) return;
+        player.seek(Duration(milliseconds: (ms * v).round()));
+      },
     );
   }
 }
@@ -613,7 +642,8 @@ class _TrackInfo extends StatelessWidget {
           _Cover(path: track.coverPath),
           const SizedBox(width: 12),
           Expanded(
-            child: Column(
+            child: ClipRect(
+              child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -653,6 +683,7 @@ class _TrackInfo extends StatelessWidget {
                   ),
                 ),
               ],
+              ),
             ),
           ),
         ],
@@ -832,6 +863,7 @@ class _RightControls extends StatelessWidget {
         ),
         _IconBtn(
           icon: Icons.lyrics_outlined,
+          mark: const LyricsGlyph(),
           active: lyricsOpen,
           tooltip: lyricsTooltip,
           onPressed: onToggleLyrics,
@@ -927,6 +959,9 @@ class _IconBtn extends StatelessWidget {
     return IconButton(
       tooltip: tooltip.isEmpty ? null : tooltip,
       onPressed: enabled ? onPressed : null,
+      mouseCursor: enabled && onPressed != null
+          ? SystemMouseCursors.click
+          : SystemMouseCursors.basic,
       visualDensity: VisualDensity.compact,
       padding: const EdgeInsets.all(8),
       constraints: const BoxConstraints(minWidth: 44, minHeight: 44),

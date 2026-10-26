@@ -7,12 +7,19 @@ import '../screens/artist_detail_screen.dart';
 import '../screens/release_detail_screen.dart';
 import '../services/library_service.dart';
 import '../widgets/app_bottom_sheet.dart';
+import 'app_navigator.dart';
 
 Future<void> openAlbumForTrack(BuildContext context, Track track) async {
+  context = navigatorContext(context);
   final library = context.read<LibraryService>();
   final album = track.displayAlbum;
+  final battle = track.isBattle;
   final albumTracks = library.tracks
-      .where((t) => t.displayAlbum.toLowerCase() == album.toLowerCase())
+      .where(
+        (t) =>
+            t.isBattle == battle &&
+            t.displayAlbum.toLowerCase() == album.toLowerCase(),
+      )
       .toList();
   if (albumTracks.isEmpty) return;
 
@@ -42,6 +49,7 @@ Future<void> openArtistFromTrack(BuildContext context, Track track) {
 
 /// Opens the only artist immediately. Several names ask which card to open.
 Future<void> openArtists(BuildContext context, List<String> artists) async {
+  context = navigatorContext(context);
   final names = <String>[];
   final seen = <String>{};
   for (final raw in artists) {
@@ -108,6 +116,7 @@ Future<void> openArtistPage(
   String artistName, {
   bool producer = false,
 }) async {
+  context = navigatorContext(context);
   final library = context.read<LibraryService>();
   final cardName = producer
       ? library.producerCardName(artistName)

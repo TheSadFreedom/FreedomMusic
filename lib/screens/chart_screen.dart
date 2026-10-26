@@ -89,9 +89,15 @@ class _ChartScreenState extends State<ChartScreen> {
     final playCounts = await library.playCountsAllTime();
     final trackSnapshot = settings.chartSnapshot(ChartPeriod.allTime.name);
     final albumSnapshot = settings.chartSnapshot('albums');
-    final trackRows = _rankTracks(entries, trackSnapshot);
+    final trackRows = _rankTracks(
+      [
+        for (final entry in entries)
+          if (!library.resolveTrack(entry.track).isBattle) entry,
+      ],
+      trackSnapshot,
+    );
     final albumRows = _rankAlbums(
-      library.tracks,
+      library.catalogTracks,
       playCounts,
       albumSnapshot,
     );
@@ -266,7 +272,7 @@ class _ChartScreenState extends State<ChartScreen> {
                   ),
                 )
               : FutureBuilder<_ChartData>(
-                  key: ValueKey('chart-${library.tracks.length}'),
+                  key: ValueKey('chart-${library.catalogTracks.length}'),
                   future: _future,
                   builder: (context, snapshot) {
                     if (snapshot.connectionState != ConnectionState.done) {
@@ -276,17 +282,18 @@ class _ChartScreenState extends State<ChartScreen> {
                     if (data == null) return const SizedBox.shrink();
                     final rows = [
                       for (final row in data.tracks)
-                        _ChartRow(
-                          rank: row.rank,
-                          delta: row.delta,
-                          entry: ChartEntry(
-                            track: library.resolveTrack(row.entry.track),
-                            playCount: row.entry.playCount,
+                        if (!library.resolveTrack(row.entry.track).isBattle)
+                          _ChartRow(
+                            rank: row.rank,
+                            delta: row.delta,
+                            entry: ChartEntry(
+                              track: library.resolveTrack(row.entry.track),
+                              playCount: row.entry.playCount,
+                            ),
                           ),
-                        ),
                     ];
                     final albums = _rankAlbums(
-                      library.tracks,
+                      library.catalogTracks,
                       data.playCounts,
                       data.albumSnapshot,
                     );

@@ -16,6 +16,7 @@ import '../services/library_service.dart';
 import '../services/player_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/breakpoints.dart';
+import '../widgets/cover_image.dart';
 import '../widgets/home_hero.dart';
 import '../widgets/playlist_mosaic.dart';
 import '../widgets/system_playlist_icon.dart';
@@ -192,11 +193,11 @@ class _LiveHero extends StatelessWidget {
     );
     final current = context.select<PlayerService, Track?>((p) => p.current);
     return _CenteredHero(
-      trackCount: library.tracks.length,
+      trackCount: library.catalogTracks.length,
       empty: library.isEmpty,
       playing: playing,
       current: current,
-      onPlay: library.isEmpty
+      onPlay: library.catalogTracks.isEmpty && current == null
           ? null
           : () {
               final player = context.read<PlayerService>();
@@ -349,11 +350,10 @@ class _NowPlaying extends StatelessWidget {
       child: const Icon(Icons.album, color: AppTheme.mossBright),
     );
     if (track.coverPath != null && File(track.coverPath!).existsSync()) {
-      cover = Image.file(
-        File(track.coverPath!),
-        width: 52,
-        height: 52,
-        fit: BoxFit.cover,
+      cover = fileCover(
+        context,
+        track.coverPath!,
+        logicalSize: 52,
       );
     }
 
@@ -841,11 +841,10 @@ class _PersonMark extends StatelessWidget {
     final path = photoPath;
     Widget child = Icon(icon, color: AppTheme.ink, size: size * 0.55);
     if (path != null && File(path).existsSync()) {
-      child = Image.file(
-        File(path),
-        width: size,
-        height: size,
-        fit: BoxFit.cover,
+      child = fileCover(
+        context,
+        path,
+        logicalSize: size,
       );
     }
     return ClipOval(
@@ -872,11 +871,10 @@ class _CoverMark extends StatelessWidget {
     );
     final cover = path;
     if (cover != null && File(cover).existsSync()) {
-      child = Image.file(
-        File(cover),
-        width: size,
-        height: size,
-        fit: BoxFit.cover,
+      child = fileCover(
+        context,
+        cover,
+        logicalSize: size,
       );
     }
     return ClipRRect(
@@ -920,11 +918,10 @@ class _PlaylistMark extends StatelessWidget {
       size: size * 0.62,
     );
     if (cover != null && cover.isNotEmpty && File(cover).existsSync()) {
-      child = Image.file(
-        File(cover),
-        width: size,
-        height: size,
-        fit: BoxFit.cover,
+      child = fileCover(
+        context,
+        cover,
+        logicalSize: size,
       );
     } else if (!playlist.isSystem) {
       child = PlaylistMosaicLoader(

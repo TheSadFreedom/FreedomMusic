@@ -14,6 +14,7 @@ import '../theme/app_theme.dart';
 import '../utils/duration_format.dart';
 import '../utils/playlist_actions.dart';
 import '../widgets/ambient_backdrop.dart';
+import '../widgets/cover_image.dart';
 import '../widgets/fullscreen_cover.dart';
 import '../widgets/listen_actions.dart';
 import '../widgets/track_cover_play.dart';
@@ -112,6 +113,7 @@ class _ReleaseDetailScreenState extends State<ReleaseDetailScreen> {
             .toLowerCase()
             .compareTo(b.displayTitle.toLowerCase());
       });
+    final lines = _releaseLines(tracks);
     final wide = MediaQuery.sizeOf(context).width >= 720;
     final coverSize = wide ? 200.0 : 160.0;
 
@@ -205,8 +207,24 @@ class _ReleaseDetailScreenState extends State<ReleaseDetailScreen> {
                 ),
               ),
               SliverList(
-                delegate: SliverChildListDelegate(
-                  _releaseRows(tracks, player),
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final line = lines[index];
+                    return switch (line) {
+                      _DiscLine(:final number, :final first) => _DiscHeader(
+                          number: number,
+                          first: first,
+                        ),
+                      _TrackLine(:final track, :final playIndex) => _TrackRow(
+                          track: track,
+                          onTap: () => player.playTracks(
+                            tracks,
+                            startIndex: playIndex,
+                          ),
+                        ),
+                    };
+                  },
+                  childCount: lines.length,
                 ),
               ),
               SliverToBoxAdapter(
@@ -243,7 +261,7 @@ class _Cover extends StatelessWidget {
       child: Icon(Icons.album, size: size * 0.35, color: AppTheme.mossBright),
     );
     if (hasFile) {
-      image = Image.file(File(path!), fit: BoxFit.cover);
+      image = fileCover(context, path!, logicalSize: size);
     }
 
     return MouseRegion(
@@ -366,26 +384,37 @@ class _Meta extends StatelessWidget {
   }
 }
 
-List<Widget> _releaseRows(List<Track> tracks, PlayerService player) {
+sealed class _ReleaseLine {}
+
+class _DiscLine extends _ReleaseLine {
+  _DiscLine({required this.number, required this.first});
+
+  final int number;
+  final bool first;
+}
+
+class _TrackLine extends _ReleaseLine {
+  _TrackLine({required this.track, required this.playIndex});
+
+  final Track track;
+  final int playIndex;
+}
+
+List<_ReleaseLine> _releaseLines(List<Track> tracks) {
   final discs = <int>{
     for (final track in tracks) track.discNumber ?? 1,
   };
   final multiDisc = discs.length > 1;
-  final rows = <Widget>[];
+  final rows = <_ReleaseLine>[];
   var shownDisc = 0;
   for (var i = 0; i < tracks.length; i++) {
     final track = tracks[i];
     final disc = track.discNumber ?? 1;
     if (multiDisc && disc != shownDisc) {
       shownDisc = disc;
-      rows.add(_DiscHeader(number: disc, first: rows.isEmpty));
+      rows.add(_DiscLine(number: disc, first: rows.isEmpty));
     }
-    rows.add(
-      _TrackRow(
-        track: track,
-        onTap: () => player.playTracks(tracks, startIndex: i),
-      ),
-    );
+    rows.add(_TrackLine(track: track, playIndex: i));
   }
   return rows;
 }
