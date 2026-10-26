@@ -89,13 +89,7 @@ class _ChartScreenState extends State<ChartScreen> {
     final playCounts = await library.playCountsAllTime();
     final trackSnapshot = settings.chartSnapshot(ChartPeriod.allTime.name);
     final albumSnapshot = settings.chartSnapshot('albums');
-    final trackRows = _rankTracks(
-      [
-        for (final entry in entries)
-          if (!library.resolveTrack(entry.track).isBattle) entry,
-      ],
-      trackSnapshot,
-    );
+    final trackRows = _rankTracks(entries, trackSnapshot);
     final albumRows = _rankAlbums(
       library.catalogTracks,
       playCounts,
@@ -282,15 +276,14 @@ class _ChartScreenState extends State<ChartScreen> {
                     if (data == null) return const SizedBox.shrink();
                     final rows = [
                       for (final row in data.tracks)
-                        if (!library.resolveTrack(row.entry.track).isBattle)
-                          _ChartRow(
-                            rank: row.rank,
-                            delta: row.delta,
-                            entry: ChartEntry(
-                              track: library.resolveTrack(row.entry.track),
-                              playCount: row.entry.playCount,
-                            ),
+                        _ChartRow(
+                          rank: row.rank,
+                          delta: row.delta,
+                          entry: ChartEntry(
+                            track: library.resolveTrack(row.entry.track),
+                            playCount: row.entry.playCount,
                           ),
+                        ),
                     ];
                     final albums = _rankAlbums(
                       library.catalogTracks,

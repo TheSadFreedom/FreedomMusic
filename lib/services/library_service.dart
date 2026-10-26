@@ -157,7 +157,6 @@ class LibraryService extends ChangeNotifier {
       if (track.isBattle) {
         battle.add(track);
         _putArtist(track, battleArtist, battleLabels);
-        continue;
       }
       catalog.add(track);
       final name = track.displayGenre;
@@ -204,13 +203,13 @@ class LibraryService extends ChangeNotifier {
     return {for (final key in keys) key: map[key]!};
   }
 
-  /// Library without Battle-Rap. Main screens read this.
+  /// Full library for main screens, random stream, artists, charts.
   List<Track> get catalogTracks {
     _ensureTrackSlices();
     return _catalogCache!;
   }
 
-  /// Battle-Rap only. Shown on the Battles page.
+  /// Battle-Rap only (legacy battles page).
   List<Track> get battleTracks {
     _ensureTrackSlices();
     return _battleCache!;
@@ -813,9 +812,7 @@ class LibraryService extends ChangeNotifier {
     var walked = 0;
     for (final track in _tracks) {
       if (_cancelFill) break;
-      if (track.isTrashed ||
-          track.isBattle ||
-          trackMetaGaps(track).ready) {
+      if (track.isTrashed || trackMetaGaps(track).ready) {
         continue;
       }
       walked++;
@@ -1370,7 +1367,6 @@ class LibraryService extends ChangeNotifier {
     final tracks = <_IxTrack>[];
 
     for (final track in _tracks) {
-      if (track.isBattle) continue;
       final lyrics = track.lyrics?.trim();
       tracks.add(
         _IxTrack(
@@ -2005,8 +2001,7 @@ class LibraryService extends ChangeNotifier {
     if (pick == null) return null;
     final list = <Track>[
       for (final track in _tracks)
-        if (!track.isTrashed && !track.isBattle && pick(trackMetaGaps(track)))
-          track,
+        if (!track.isTrashed && pick(trackMetaGaps(track))) track,
     ];
     list.sort(_byArtistTitle);
     return list;
@@ -2016,10 +2011,7 @@ class LibraryService extends ChangeNotifier {
   List<Track> tracksMissingMetadata() {
     final list = <Track>[
       for (final track in _tracks)
-        if (!track.isTrashed &&
-            !track.isBattle &&
-            trackMetaGaps(track).core)
-          track,
+        if (!track.isTrashed && trackMetaGaps(track).core) track,
     ];
     list.sort(_byArtistTitle);
     return list;
@@ -2045,7 +2037,7 @@ class LibraryService extends ChangeNotifier {
     };
     var seen = 0;
     for (final track in _tracks) {
-      if (track.isTrashed || track.isBattle) continue;
+      if (track.isTrashed) continue;
       final gaps = trackMetaGaps(track);
       if (gaps.genre) groups[Playlist.kindMissingGenre]!.add(track);
       if (gaps.ready) {
@@ -2142,8 +2134,7 @@ class LibraryService extends ChangeNotifier {
       if (cover != null && cover.isNotEmpty) continue;
       final keys = await _db.getPlaylistTrackKeys(playlist.id);
       final covers = [
-        for (final key in keys)
-          if (byKey[key]?.isBattle != true) byKey[key]?.coverPath,
+        for (final key in keys) byKey[key]?.coverPath,
       ];
       final known = _coverSetSig(covers);
       final previous = _mosaicCache[playlist.id];
@@ -2171,7 +2162,6 @@ class LibraryService extends ChangeNotifier {
     final byGenre = <String, List<String?>>{};
     var walked = 0;
     for (final track in _tracks) {
-      if (track.isBattle) continue;
       final genre = track.displayGenre;
       if (genre.isEmpty) continue;
       byGenre.putIfAbsent(genre, () => []).add(track.coverPath);

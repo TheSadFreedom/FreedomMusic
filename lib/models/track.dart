@@ -105,7 +105,7 @@ class Track {
 
   String get displayGenre => metaFieldText(genre);
 
-  /// Genre tag Battle-Rap. Hidden from the main library.
+  /// Genre tag Battle-Rap.
   bool get isBattle => isBattleGenre(genre);
 
   /// Grouping key. An empty album stays "Unknown" so releases still cluster.

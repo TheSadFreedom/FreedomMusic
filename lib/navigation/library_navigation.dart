@@ -13,13 +13,8 @@ Future<void> openAlbumForTrack(BuildContext context, Track track) async {
   context = navigatorContext(context);
   final library = context.read<LibraryService>();
   final album = track.displayAlbum;
-  final battle = track.isBattle;
   final albumTracks = library.tracks
-      .where(
-        (t) =>
-            t.isBattle == battle &&
-            t.displayAlbum.toLowerCase() == album.toLowerCase(),
-      )
+      .where((t) => t.displayAlbum.toLowerCase() == album.toLowerCase())
       .toList();
   if (albumTracks.isEmpty) return;
 

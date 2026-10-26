@@ -61,7 +61,7 @@ class ArtistDetailScreen extends StatefulWidget {
   final Map<String, int> trackPlayCounts;
   final bool byProducer;
 
-  /// Battle card shows only Battle-Rap. The main card hides those tracks.
+  /// Legacy battles page: only Battle-Rap tracks.
   final bool battleOnly;
 
   @override
@@ -91,7 +91,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
     if (live.isNotEmpty) return live;
     return [
       for (final track in widget.tracks)
-        if (widget.battleOnly ? track.isBattle : !track.isBattle) track,
+        if (!widget.battleOnly || track.isBattle) track,
     ];
   }
 

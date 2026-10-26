@@ -870,9 +870,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                 for (final t in snapshot.data ?? const <Track>[])
                   library.resolveTrack(t),
               ];
-          final tracks = isTrash
-              ? loaded
-              : [for (final t in loaded) if (!t.isBattle) t];
+          final tracks = loaded;
           final filtered = _query.trim().isEmpty
               ? tracks
               : tracks

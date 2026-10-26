@@ -943,10 +943,7 @@ class AppDatabase {
     ''',
       [since],
     );
-    return [
-      for (final track in rows.map(_trackFromRow))
-        if (!track.isBattle) track,
-    ];
+    return [for (final track in rows.map(_trackFromRow)) track];
   }
 
   Future<List<({String trackKey, int addedAt})>>
