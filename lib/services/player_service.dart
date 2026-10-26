@@ -183,15 +183,8 @@ class PlayerService extends ChangeNotifier {
     }
   }
 
-  /// UI volume 0–1 → quieter low end (perception / Windows gain).
-  static double outputGain(double ui) {
-    final v = ui.clamp(0.0, 1.0);
-    if (v <= 0) return 0;
-    return v * v * v;
-  }
-
-  /// media_kit volume is 0–100.
-  static double _mediaKitVolume(double ui) => outputGain(ui) * 100;
+  /// UI volume 0–1 → media_kit 0–100 (linear; cubic made ~50% nearly silent).
+  static double _mediaKitVolume(double ui) => ui.clamp(0.0, 1.0) * 100;
 
   void _flushListenMs() {
     final key = current?.trackKey;
