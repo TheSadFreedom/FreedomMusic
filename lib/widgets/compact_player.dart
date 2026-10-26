@@ -70,11 +70,10 @@ class _CompactPlayerState extends State<CompactPlayer> {
         ),
         child: Column(
           children: [
-            SizedBox(
-              height: DesktopShell.compactSize.height - 12,
+            Expanded(
               child: DragToMoveArea(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 8, 4),
+                  padding: const EdgeInsets.fromLTRB(12, 10, 8, 4),
                   child: confirming
                       ? _CompactTrashConfirm(
                           track: track,
@@ -93,8 +92,11 @@ class _CompactPlayerState extends State<CompactPlayer> {
                 ),
               ),
             ),
-            _LiveCompactProgress(
-              enabled: track != null && !confirming,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+              child: _LiveCompactProgress(
+                enabled: track != null && !confirming,
+              ),
             ),
           ],
         ),
@@ -385,9 +387,10 @@ class _CompactProgressState extends State<_CompactProgress> {
   @override
   Widget build(BuildContext context) {
     final p = widget.progress.clamp(0.0, 1.0);
-    final trackH = _hover ? 3.0 : 2.0;
-    final thumbR = _hover ? 5.5 : 4.0;
-    const hitH = 12.0;
+    final trackH = _hover ? 5.0 : 3.5;
+    final thumbR = _hover ? 6.0 : 4.5;
+    const hitH = 14.0;
+    final muted = !widget.enabled;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -404,6 +407,7 @@ class _CompactProgressState extends State<_CompactProgress> {
             final lineTop = (hitH - trackH) / 2;
             return Stack(
               clipBehavior: Clip.none,
+              alignment: Alignment.center,
               children: [
                 Positioned.fill(
                   child: GestureDetector(
@@ -416,11 +420,16 @@ class _CompactProgressState extends State<_CompactProgress> {
                         : null,
                     child: CustomPaint(
                       size: Size(width, hitH),
-                      painter: _BarPainter(progress: p, trackHeight: trackH),
+                      painter: _BarPainter(
+                        progress: p,
+                        trackHeight: trackH,
+                        muted: muted,
+                        emphasize: _hover,
+                      ),
                     ),
                   ),
                 ),
-                if (_hover || p > 0)
+                if (!muted && (_hover || p > 0.002))
                   Positioned(
                     left: (width * p).clamp(thumbR, width - thumbR) - thumbR,
                     top: lineTop + trackH / 2 - thumbR,
@@ -428,9 +437,19 @@ class _CompactProgressState extends State<_CompactProgress> {
                       child: Container(
                         width: thumbR * 2,
                         height: thumbR * 2,
-                        decoration: const BoxDecoration(
+                        decoration: BoxDecoration(
                           color: _kYellow,
                           shape: BoxShape.circle,
+                          border: Border.all(
+                            color: const Color(0xFF0C1210),
+                            width: 1.5,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: _kYellow.withValues(alpha: 0.28),
+                              blurRadius: _hover ? 8 : 4,
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -445,36 +464,33 @@ class _CompactProgressState extends State<_CompactProgress> {
 }
 
 class _BarPainter extends CustomPainter {
-  _BarPainter({required this.progress, required this.trackHeight});
+  _BarPainter({
+    required this.progress,
+    required this.trackHeight,
+    required this.muted,
+    required this.emphasize,
+  });
 
   final double progress;
   final double trackHeight;
+  final bool muted;
+  final bool emphasize;
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Keep the line inside the window. The bottom edge is clipped by the
-    // frame, so a line painted there disappears while the thumb stays visible.
     final top = (size.height - trackHeight) / 2;
     final bottom = top + trackHeight;
+    final radius = Radius.circular(trackHeight / 2);
+    final trackAlpha = muted ? 0.06 : (emphasize ? 0.18 : 0.12);
+
     canvas.drawRRect(
-      RRect.fromLTRBR(
-        0,
-        top,
-        size.width,
-        bottom,
-        Radius.circular(trackHeight / 2),
-      ),
-      Paint()..color = Colors.white.withValues(alpha: 0.12),
+      RRect.fromLTRBR(0, top, size.width, bottom, radius),
+      Paint()..color = Colors.white.withValues(alpha: trackAlpha),
     );
-    if (progress > 0) {
+    if (!muted && progress > 0) {
+      final fillW = (size.width * progress).clamp(trackHeight, size.width);
       canvas.drawRRect(
-        RRect.fromLTRBR(
-          0,
-          top,
-          size.width * progress,
-          bottom,
-          Radius.circular(trackHeight / 2),
-        ),
+        RRect.fromLTRBR(0, top, fillW, bottom, radius),
         Paint()..color = _kYellow,
       );
     }
@@ -483,7 +499,9 @@ class _BarPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _BarPainter oldDelegate) =>
       oldDelegate.progress != progress ||
-      oldDelegate.trackHeight != trackHeight;
+      oldDelegate.trackHeight != trackHeight ||
+      oldDelegate.muted != muted ||
+      oldDelegate.emphasize != emphasize;
 }
 
 class _Cover extends StatelessWidget {
