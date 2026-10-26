@@ -368,11 +368,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 ),
                                 _SettingAction(
                                   icon: const LyricsGlyph(),
-                                  title: 'Поиск текстов',
-                                  description: 'Ищет текст песни и записывает его в файл.',
+                                  title: 'Поиск текста',
+                                  description:
+                                      'Ищет текст для треков; если текст уже есть, трек пропускается.',
                                   onPressed: busy
                                       ? null
                                       : () => library.fillMissingLyrics(),
+                                ),
+                                _SettingAction(
+                                  icon: const RestartGlyph(),
+                                  title: 'Повторный поиск текста',
+                                  description:
+                                      'Ищет текст для всех песен заново, даже если текст уже заполнен.',
+                                  onPressed: busy
+                                      ? null
+                                      : () => library.refillAllLyrics(),
                                 ),
                               ],
                             ),

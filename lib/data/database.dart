@@ -411,7 +411,7 @@ class AppDatabase {
 
   /// Upsert logical track + link file. Never duplicates track_key.
   /// Preserves [trashed_at] / [added_at]; sets [added_at] for brand-new tracks.
-  /// Keeps existing lyrics when the file tag has none (e.g. Genius fill).
+  /// Keeps existing lyrics when the file tag has none (e.g. LRCLIB fill).
   Future<void> upsertTrackFile({
     required Track track,
     required String filePath,

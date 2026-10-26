@@ -757,7 +757,7 @@ class LibraryService extends ChangeNotifier {
     }
   }
 
-  /// Look up lyrics for tracks that have none and write only the lyrics tag.
+  /// Look up lyrics only for tracks that have none.
   Future<void> fillMissingLyrics() async {
     if (_scanning) return;
     _scanning = true;
@@ -771,7 +771,8 @@ class LibraryService extends ChangeNotifier {
       final candidates =
           _tracks.where((t) => !hasLyrics(t.lyrics)).toList(growable: false);
       if (candidates.isEmpty) {
-        _lastScanMessage = 'Текстов для поиска нет — у всех треков текст уже есть.';
+        _lastScanMessage =
+            'Текстов для поиска нет — у всех треков текст уже есть.';
         return;
       }
 
@@ -789,6 +790,45 @@ class LibraryService extends ChangeNotifier {
     } catch (e) {
       _error = e.toString();
       _lastScanMessage = 'Ошибка поиска текстов: $e';
+    } finally {
+      _scanning = false;
+      _cancelFill = false;
+      _scanProgress = null;
+      _paintJob(force: true);
+    }
+  }
+
+  /// Re-fetch lyrics for every track, overwriting existing text.
+  Future<void> refillAllLyrics() async {
+    if (_scanning) return;
+    _scanning = true;
+    _cancelFill = false;
+    _scanProgress = null;
+    _lastScanMessage = null;
+    _jobLog.clear();
+    _paintJob(force: true);
+
+    try {
+      final candidates = List<Track>.from(_tracks);
+      if (candidates.isEmpty) {
+        _lastScanMessage = 'В библиотеке нет треков для поиска текстов.';
+        return;
+      }
+
+      final result = await _fillLyrics(candidates, overwrite: true);
+      await reload();
+      if (result.cancelled) {
+        _lastScanMessage =
+            'Повторный поиск текстов остановлен. Записано: ${result.filled} '
+            'из ${candidates.length}.';
+      } else {
+        _lastScanMessage =
+            'Повторно проверено треков: ${candidates.length}. '
+            'Записано: ${result.filled}.';
+      }
+    } catch (e) {
+      _error = e.toString();
+      _lastScanMessage = 'Ошибка повторного поиска текстов: $e';
     } finally {
       _scanning = false;
       _cancelFill = false;
@@ -1102,8 +1142,9 @@ class LibraryService extends ChangeNotifier {
   }
 
   Future<({int filled, bool cancelled})> _fillLyrics(
-    List<Track> candidates,
-  ) async {
+    List<Track> candidates, {
+    bool overwrite = false,
+  }) async {
     var filled = 0;
     final total = candidates.length;
     var lastUiAt = DateTime.fromMillisecondsSinceEpoch(0);
@@ -1132,7 +1173,7 @@ class LibraryService extends ChangeNotifier {
       }
       final track = candidates[i];
       publishProgress(i, track);
-      if (hasLyrics(track.lyrics)) continue;
+      if (!overwrite && hasLyrics(track.lyrics)) continue;
       if (track.title.trim().isEmpty ||
           track.artist.trim().isEmpty ||
           track.artist.toLowerCase() == 'unknown') {

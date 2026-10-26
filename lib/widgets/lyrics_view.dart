@@ -148,7 +148,7 @@ class _EmptyLyrics extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final message = fetching
-        ? 'Ищем текст на Genius…'
+        ? 'Ищем текст на LRCLIB…'
         : notFound
         ? 'Текст не найден'
         : 'Текста нет';
