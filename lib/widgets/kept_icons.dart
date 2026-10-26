@@ -156,12 +156,12 @@ class QueueMusicGlyph extends StatelessWidget {
   }
 }
 
-class BattlesGlyph extends StatelessWidget {
-  const BattlesGlyph({super.key});
+class EqualizerGlyph extends StatelessWidget {
+  const EqualizerGlyph({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return const Icon(Icons.sports_mma_outlined);
+    return const Icon(Icons.equalizer_rounded);
   }
 }
 

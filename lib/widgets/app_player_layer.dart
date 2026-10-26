@@ -33,6 +33,7 @@ class AppPlayerLayer extends StatefulWidget {
 class _AppPlayerLayerState extends State<AppPlayerLayer> {
   final _dock = PlayerDock();
   final _lyrics = LyricsPresentation();
+  final _playerBarKey = GlobalKey();
   late final OverlayEntry _entry = OverlayEntry(builder: _buildStack);
 
   @override
@@ -69,6 +70,7 @@ class _AppPlayerLayerState extends State<AppPlayerLayer> {
         : MediaQuery.paddingOf(context).top;
     return Stack(
       fit: StackFit.expand,
+      clipBehavior: Clip.none,
       children: [
         Padding(
           padding: EdgeInsets.only(bottom: playerHeight),
@@ -98,7 +100,13 @@ class _AppPlayerLayerState extends State<AppPlayerLayer> {
             left: 0,
             right: 0,
             bottom: 0,
-            child: _PlayerDockReporter(dock: _dock, child: const MiniPlayer()),
+            // Высота дока = только бар (без эквалайзера), чтобы контент
+            // оставался под панелью, а клики по EQ доходили.
+            child: _PlayerDockReporter(
+              dock: _dock,
+              measureKey: _playerBarKey,
+              child: MiniPlayer(barKey: _playerBarKey),
+            ),
           ),
       ],
     );
@@ -118,9 +126,14 @@ class _AppPlayerLayerState extends State<AppPlayerLayer> {
 }
 
 class _PlayerDockReporter extends StatefulWidget {
-  const _PlayerDockReporter({required this.dock, required this.child});
+  const _PlayerDockReporter({
+    required this.dock,
+    required this.measureKey,
+    required this.child,
+  });
 
   final PlayerDock dock;
+  final GlobalKey measureKey;
   final Widget child;
 
   @override
@@ -136,7 +149,8 @@ class _PlayerDockReporterState extends State<_PlayerDockReporter> {
 
   void _report() {
     if (!mounted) return;
-    final box = context.findRenderObject() as RenderBox?;
+    final box =
+        widget.measureKey.currentContext?.findRenderObject() as RenderBox?;
     final height = box != null && box.hasSize ? box.size.height : 0.0;
     widget.dock.setHeight(height);
   }

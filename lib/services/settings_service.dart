@@ -1,5 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../models/equalizer_state.dart';
 
 class SettingsService extends ChangeNotifier {
   SettingsService(this._prefs);
@@ -12,6 +16,7 @@ class SettingsService extends ChangeNotifier {
   static const _playerVolumeKey = 'player_volume';
   static const _playerVolumeBeforeMuteKey = 'player_volume_before_mute';
   static const _crossfadeSecondsKey = 'crossfade_seconds';
+  static const _equalizerKey = 'equalizer_v1';
   static const _playbackQueueKey = 'playback_queue_keys';
   static const _playbackIndexKey = 'playback_index';
   static const _playbackPositionKey = 'playback_position_ms';
@@ -84,6 +89,22 @@ class SettingsService extends ChangeNotifier {
   Future<void> setCrossfadeSeconds(int seconds) async {
     await _prefs.setInt(_crossfadeSecondsKey, seconds.clamp(0, 12));
     notifyListeners();
+  }
+
+  EqualizerState get equalizer {
+    final raw = _prefs.getString(_equalizerKey);
+    if (raw == null || raw.isEmpty) return EqualizerState.flat();
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        return EqualizerState.fromJson(Map<String, Object?>.from(decoded));
+      }
+    } catch (_) {}
+    return EqualizerState.flat();
+  }
+
+  Future<void> setEqualizer(EqualizerState state) async {
+    await _prefs.setString(_equalizerKey, jsonEncode(state.toJson()));
   }
 
   List<String> get playbackQueueKeys =>

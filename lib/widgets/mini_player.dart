@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
+import '../models/equalizer_state.dart';
 import '../models/track.dart';
 import '../navigation/library_navigation.dart';
 import '../services/library_service.dart';
@@ -15,6 +16,7 @@ import '../theme/app_theme.dart';
 import '../utils/breakpoints.dart';
 import '../utils/duration_format.dart';
 import '../utils/lyrics_format.dart';
+import 'equalizer_panel.dart';
 import 'kept_icons.dart';
 import 'lyrics_view.dart';
 import 'track_overflow_menu.dart';
@@ -27,7 +29,10 @@ const _kIcon = Color(0xFFD4D0C8);
 const _kIconDim = Color(0xFF7A766E);
 
 class MiniPlayer extends StatefulWidget {
-  const MiniPlayer({super.key});
+  const MiniPlayer({super.key, this.barKey});
+
+  /// Ключ бара для высоты дока (без панели эквалайзера).
+  final GlobalKey? barKey;
 
   @override
   State<MiniPlayer> createState() => _MiniPlayerState();
@@ -36,6 +41,7 @@ class MiniPlayer extends StatefulWidget {
 class _MiniPlayerState extends State<MiniPlayer> {
   bool _showLyrics = false;
   bool _showQueue = false;
+  bool _showEqualizer = false;
   final _volumePortal = OverlayPortalController();
   final _volumeLink = LayerLink();
   Timer? _volumeHideTimer;
@@ -49,8 +55,11 @@ class _MiniPlayerState extends State<MiniPlayer> {
 
   void _showVolumeHover() {
     _volumeHideTimer?.cancel();
-    if (_showQueue) {
-      setState(() => _showQueue = false);
+    if (_showQueue || _showEqualizer) {
+      setState(() {
+        _showQueue = false;
+        _showEqualizer = false;
+      });
     }
     if (!_volumePortal.isShowing) {
       _volumePortal.show();
@@ -120,11 +129,13 @@ class _MiniPlayerState extends State<MiniPlayer> {
     context.select<PlayerService, PlayRepeatMode>((p) => p.repeat);
     context.select<PlayerService, double>((p) => p.volume);
     context.select<PlayerService, int>((p) => p.queueEpoch);
+    context.select<PlayerService, EqualizerState>((p) => p.equalizer);
     final player = context.read<PlayerService>();
     final library = context.watch<LibraryService>();
     if (track == null) {
       _hideVolume();
       if (_showLyrics) _showLyrics = false;
+      if (_showEqualizer) _showEqualizer = false;
       _publishLyrics(visible: false);
       return const SizedBox.shrink();
     }
@@ -149,6 +160,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
       final opening = !_showLyrics;
       setState(() {
         _showQueue = false;
+        _showEqualizer = false;
         _showLyrics = opening;
       });
       // The stage lives in the player overlay, outside this build. Publish
@@ -173,7 +185,17 @@ class _MiniPlayerState extends State<MiniPlayer> {
       _hideVolume();
       setState(() {
         _showLyrics = false;
+        _showEqualizer = false;
         _showQueue = !_showQueue;
+      });
+    }
+
+    void toggleEqualizer() {
+      _hideVolume();
+      setState(() {
+        _showLyrics = false;
+        _showQueue = false;
+        _showEqualizer = !_showEqualizer;
       });
     }
 
@@ -190,9 +212,8 @@ class _MiniPlayerState extends State<MiniPlayer> {
               onClose: () => setState(() => _showQueue = false),
             )
           : const SizedBox(width: double.infinity, height: 0),
-      crossFadeState: _showQueue
-          ? CrossFadeState.showSecond
-          : CrossFadeState.showFirst,
+      crossFadeState:
+          _showQueue ? CrossFadeState.showSecond : CrossFadeState.showFirst,
       duration: const Duration(milliseconds: 220),
     );
 
@@ -228,6 +249,14 @@ class _MiniPlayerState extends State<MiniPlayer> {
                           ? 'Ищем текст…'
                           : 'Текст',
                       onPressed: toggleLyrics,
+                      size: 24,
+                    ),
+                    _IconBtn(
+                      icon: Icons.equalizer_rounded,
+                      mark: const EqualizerGlyph(),
+                      active: _showEqualizer,
+                      tooltip: 'Эквалайзер',
+                      onPressed: toggleEqualizer,
                       size: 24,
                     ),
                     _IconBtn(
@@ -272,8 +301,10 @@ class _MiniPlayerState extends State<MiniPlayer> {
                     child: _RightControls(
                       lyricsOpen: _showLyrics,
                       queueOpen: _showQueue,
+                      equalizerOpen: _showEqualizer,
                       onToggleLyrics: toggleLyrics,
                       onToggleQueue: toggleQueue,
+                      onToggleEqualizer: toggleEqualizer,
                       volumeControl: _volumeControl(player),
                       lyricsTooltip: lyricsText.isNotEmpty
                           ? 'Текст'
@@ -295,6 +326,13 @@ class _MiniPlayerState extends State<MiniPlayer> {
                         ? 'Ищем текст…'
                         : 'Текст',
                     onPressed: toggleLyrics,
+                  ),
+                  _IconBtn(
+                    icon: Icons.equalizer_rounded,
+                    mark: const EqualizerGlyph(),
+                    active: _showEqualizer,
+                    tooltip: 'Эквалайзер',
+                    onPressed: toggleEqualizer,
                   ),
                   _IconBtn(
                     icon: Icons.queue_music_rounded,
@@ -321,32 +359,49 @@ class _MiniPlayerState extends State<MiniPlayer> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Padding(
-              padding: EdgeInsets.fromLTRB(
-                phone ? 8 : 10,
-                0,
-                phone ? 8 : 10,
-                8,
-              ),
-              // Clip.none so the progress thumb can sit on the top edge
-              // without being cut by the rounded bar.
-              child: Container(
-                clipBehavior: Clip.none,
-                decoration: BoxDecoration(
-                  color: _kBar,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.06),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.45),
-                      blurRadius: 24,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
+            if (_showEqualizer)
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  phone ? 12 : 16,
+                  0,
+                  phone ? 12 : 16,
+                  10,
                 ),
-                child: controlsBody,
+                child: const Align(
+                  alignment: Alignment.centerRight,
+                  child: EqualizerPanel(),
+                ),
+              ),
+            // Высоту дока меряем только по бару — EQ поверх контента.
+            SizeChangedLayoutNotifier(
+              child: Padding(
+                key: widget.barKey,
+                padding: EdgeInsets.fromLTRB(
+                  phone ? 8 : 10,
+                  0,
+                  phone ? 8 : 10,
+                  8,
+                ),
+                // Clip.none so the progress thumb can sit on the top edge
+                // without being cut by the rounded bar.
+                child: Container(
+                  clipBehavior: Clip.none,
+                  decoration: BoxDecoration(
+                    color: _kBar,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.06),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.45),
+                        blurRadius: 24,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: controlsBody,
+                ),
               ),
             ),
           ],
@@ -837,16 +892,20 @@ class _RightControls extends StatelessWidget {
   const _RightControls({
     required this.lyricsOpen,
     required this.queueOpen,
+    required this.equalizerOpen,
     required this.onToggleLyrics,
     required this.onToggleQueue,
+    required this.onToggleEqualizer,
     required this.volumeControl,
     required this.lyricsTooltip,
   });
 
   final bool lyricsOpen;
   final bool queueOpen;
+  final bool equalizerOpen;
   final VoidCallback onToggleLyrics;
   final VoidCallback onToggleQueue;
+  final VoidCallback onToggleEqualizer;
   final Widget volumeControl;
   final String lyricsTooltip;
 
@@ -855,6 +914,13 @@ class _RightControls extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
+        _IconBtn(
+          icon: Icons.equalizer_rounded,
+          mark: const EqualizerGlyph(),
+          active: equalizerOpen,
+          tooltip: 'Эквалайзер',
+          onPressed: onToggleEqualizer,
+        ),
         _IconBtn(
           icon: Icons.queue_music_rounded,
           active: queueOpen,
