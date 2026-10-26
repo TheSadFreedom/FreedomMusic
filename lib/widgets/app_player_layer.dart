@@ -74,8 +74,11 @@ class _AppPlayerLayerState extends State<AppPlayerLayer> {
           padding: EdgeInsets.only(bottom: playerHeight),
           child: widget.child,
         ),
+        // Keys keep the player state when the lyrics stage is inserted before
+        // it. Without them the player is rebuilt and closes the lyrics again.
         if (!compact && _lyrics.visible)
           Positioned(
+            key: const ValueKey('lyrics-stage'),
             top: lyricsTop,
             left: 0,
             right: 0,
@@ -91,6 +94,7 @@ class _AppPlayerLayerState extends State<AppPlayerLayer> {
           ),
         if (!compact)
           Positioned(
+            key: const ValueKey('player-dock'),
             left: 0,
             right: 0,
             bottom: 0,
