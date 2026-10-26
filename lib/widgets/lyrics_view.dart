@@ -15,9 +15,6 @@ class LyricsPresentation extends ChangeNotifier {
   String? raw;
   bool fetching = false;
   bool notFound = false;
-  VoidCallback? closeHandler;
-
-  void requestClose() => closeHandler?.call();
 
   void update({
     required bool visible,
@@ -54,7 +51,6 @@ class LyricsStage extends StatelessWidget {
     required this.raw,
     required this.fetching,
     required this.notFound,
-    required this.onClose,
   });
 
   final String title;
@@ -62,7 +58,6 @@ class LyricsStage extends StatelessWidget {
   final String? raw;
   final bool fetching;
   final bool notFound;
-  final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) {
@@ -72,7 +67,7 @@ class LyricsStage extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _Header(title: title, note: note, onClose: onClose),
+          _Header(title: title, note: note),
           Expanded(
             child: lines.isEmpty
                 ? _EmptyLyrics(fetching: fetching, notFound: notFound)
@@ -85,55 +80,41 @@ class LyricsStage extends StatelessWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.title, this.note, required this.onClose});
+  const _Header({required this.title, this.note});
 
   final String title;
   final String? note;
-  final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       height: 72,
-      child: Row(
-        children: [
-          const SizedBox(width: 72),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  'Сейчас играет',
-                  style: GoogleFonts.figtree(
-                    color: AppTheme.paperMuted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                TrackTitleLine(
-                  title: title,
-                  note: note,
-                  centered: true,
-                  style: GoogleFonts.syne(
-                    color: AppTheme.paper,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              'Сейчас играет',
+              style: GoogleFonts.figtree(
+                color: AppTheme.paperMuted,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(right: 10),
-            child: IconButton(
-              onPressed: onClose,
-              mouseCursor: SystemMouseCursors.click,
-              iconSize: 36,
-              icon: const Icon(Icons.close, color: AppTheme.paper),
+            const SizedBox(height: 2),
+            TrackTitleLine(
+              title: title,
+              note: note,
+              centered: true,
+              style: GoogleFonts.syne(
+                color: AppTheme.paper,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -88,10 +88,6 @@ class _MiniPlayerState extends State<MiniPlayer> {
     bool notFound = false,
   }) {
     final presentation = context.read<LyricsPresentation>();
-    presentation.closeHandler = () {
-      if (!mounted) return;
-      setState(() => _showLyrics = false);
-    };
     if (presentation.visible == visible &&
         presentation.title == title &&
         presentation.note == note &&
@@ -201,22 +197,6 @@ class _MiniPlayerState extends State<MiniPlayer> {
 
     const progressStrip = _LiveProgressStrip();
 
-    final panels = AnimatedCrossFade(
-      firstChild: const SizedBox(width: double.infinity, height: 0),
-      secondChild: _showQueue
-          ? _QueuePanel(
-              queue: player.queue,
-              currentKey: track.trackKey,
-              onSelect: (i) => player.playQueueIndex(i),
-              onReorder: player.reorderQueue,
-              onClose: () => setState(() => _showQueue = false),
-            )
-          : const SizedBox(width: double.infinity, height: 0),
-      crossFadeState:
-          _showQueue ? CrossFadeState.showSecond : CrossFadeState.showFirst,
-      duration: const Duration(milliseconds: 220),
-    );
-
     final Widget controlsBody;
     if (phone) {
       controlsBody = Column(
@@ -224,17 +204,16 @@ class _MiniPlayerState extends State<MiniPlayer> {
         children: [
           progressStrip,
           Padding(
-            padding: EdgeInsets.fromLTRB(
-              12,
-              10,
-              8,
-              _showLyrics || _showQueue ? 8 : 10,
-            ),
+            padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
             child: Column(
               children: [
                 _TrackInfo(track: track),
                 const SizedBox(height: 6),
-                _CenterControls(player: player),
+                _CenterControls(
+                  player: player,
+                  queueOpen: _showQueue,
+                  onToggleQueue: toggleQueue,
+                ),
                 const SizedBox(height: 2),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -259,21 +238,12 @@ class _MiniPlayerState extends State<MiniPlayer> {
                       onPressed: toggleEqualizer,
                       size: 24,
                     ),
-                    _IconBtn(
-                      icon: Icons.queue_music_rounded,
-                      active: _showQueue,
-                      tooltip: 'Очередь',
-                      onPressed: toggleQueue,
-                      size: 24,
-                    ),
-                    const _TrashBtn(size: 24),
                     _volumeControl(player, iconSize: 24),
                   ],
                 ),
               ],
             ),
           ),
-          panels,
         ],
       );
     } else {
@@ -286,7 +256,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
               14,
               8,
               10,
-              _showLyrics || _showQueue ? 8 : 12,
+              _showLyrics ? 8 : 12,
             ),
             child: Row(
               children: [
@@ -295,15 +265,20 @@ class _MiniPlayerState extends State<MiniPlayer> {
                   child: _TrackInfo(track: track),
                 ),
                 if (wide) ...[
-                  Expanded(flex: 4, child: _CenterControls(player: player)),
+                  Expanded(
+                    flex: 4,
+                    child: _CenterControls(
+                      player: player,
+                      queueOpen: _showQueue,
+                      onToggleQueue: toggleQueue,
+                    ),
+                  ),
                   Expanded(
                     flex: 3,
                     child: _RightControls(
                       lyricsOpen: _showLyrics,
-                      queueOpen: _showQueue,
                       equalizerOpen: _showEqualizer,
                       onToggleLyrics: toggleLyrics,
-                      onToggleQueue: toggleQueue,
                       onToggleEqualizer: toggleEqualizer,
                       volumeControl: _volumeControl(player),
                       lyricsTooltip: lyricsText.isNotEmpty
@@ -314,7 +289,11 @@ class _MiniPlayerState extends State<MiniPlayer> {
                     ),
                   ),
                 ] else ...[
-                  _CompactCenter(player: player),
+                  _CompactCenter(
+                    player: player,
+                    queueOpen: _showQueue,
+                    onToggleQueue: toggleQueue,
+                  ),
                   const SizedBox(width: 4),
                   _IconBtn(
                     icon: Icons.lyrics_outlined,
@@ -334,19 +313,11 @@ class _MiniPlayerState extends State<MiniPlayer> {
                     tooltip: 'Эквалайзер',
                     onPressed: toggleEqualizer,
                   ),
-                  _IconBtn(
-                    icon: Icons.queue_music_rounded,
-                    active: _showQueue,
-                    tooltip: 'Очередь',
-                    onPressed: toggleQueue,
-                  ),
-                  const _TrashBtn(),
                   _volumeControl(player),
                 ],
               ],
             ),
           ),
-          panels,
         ],
       );
     }
@@ -359,6 +330,25 @@ class _MiniPlayerState extends State<MiniPlayer> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (_showQueue)
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  phone ? 12 : 16,
+                  0,
+                  phone ? 12 : 16,
+                  10,
+                ),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: _QueueWindow(
+                    queue: player.queue,
+                    currentKey: track.trackKey,
+                    onSelect: (i) => player.playQueueIndex(i),
+                    onReorder: player.reorderQueue,
+                    onClose: () => setState(() => _showQueue = false),
+                  ),
+                ),
+              ),
             if (_showEqualizer)
               Padding(
                 padding: EdgeInsets.fromLTRB(
@@ -372,7 +362,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                   child: EqualizerPanel(),
                 ),
               ),
-            // Высоту дока меряем только по бару — EQ поверх контента.
+            // Высоту дока меряем только по бару — очередь и EQ поверх.
             SizeChangedLayoutNotifier(
               child: Padding(
                 key: widget.barKey,
@@ -812,15 +802,22 @@ Future<void> _openCover(BuildContext context, String path) {
 }
 
 class _CenterControls extends StatelessWidget {
-  const _CenterControls({required this.player});
+  const _CenterControls({
+    required this.player,
+    required this.queueOpen,
+    required this.onToggleQueue,
+  });
 
   final PlayerService player;
+  final bool queueOpen;
+  final VoidCallback onToggleQueue;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
+        const _TrashBtn(),
         _IconBtn(
           icon: Icons.shuffle_rounded,
           active: player.shuffle,
@@ -853,21 +850,34 @@ class _CenterControls extends StatelessWidget {
           },
           onPressed: player.cycleRepeat,
         ),
+        _IconBtn(
+          icon: Icons.queue_music_rounded,
+          active: queueOpen,
+          tooltip: 'Очередь',
+          onPressed: onToggleQueue,
+        ),
       ],
     );
   }
 }
 
 class _CompactCenter extends StatelessWidget {
-  const _CompactCenter({required this.player});
+  const _CompactCenter({
+    required this.player,
+    required this.queueOpen,
+    required this.onToggleQueue,
+  });
 
   final PlayerService player;
+  final bool queueOpen;
+  final VoidCallback onToggleQueue;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        const _TrashBtn(),
         _IconBtn(
           icon: Icons.skip_previous_rounded,
           tooltip: 'Предыдущий',
@@ -883,6 +893,12 @@ class _CompactCenter extends StatelessWidget {
           tooltip: 'Следующий',
           onPressed: player.next,
         ),
+        _IconBtn(
+          icon: Icons.queue_music_rounded,
+          active: queueOpen,
+          tooltip: 'Очередь',
+          onPressed: onToggleQueue,
+        ),
       ],
     );
   }
@@ -891,20 +907,16 @@ class _CompactCenter extends StatelessWidget {
 class _RightControls extends StatelessWidget {
   const _RightControls({
     required this.lyricsOpen,
-    required this.queueOpen,
     required this.equalizerOpen,
     required this.onToggleLyrics,
-    required this.onToggleQueue,
     required this.onToggleEqualizer,
     required this.volumeControl,
     required this.lyricsTooltip,
   });
 
   final bool lyricsOpen;
-  final bool queueOpen;
   final bool equalizerOpen;
   final VoidCallback onToggleLyrics;
-  final VoidCallback onToggleQueue;
   final VoidCallback onToggleEqualizer;
   final Widget volumeControl;
   final String lyricsTooltip;
@@ -922,19 +934,12 @@ class _RightControls extends StatelessWidget {
           onPressed: onToggleEqualizer,
         ),
         _IconBtn(
-          icon: Icons.queue_music_rounded,
-          active: queueOpen,
-          tooltip: 'Очередь',
-          onPressed: onToggleQueue,
-        ),
-        _IconBtn(
           icon: Icons.lyrics_outlined,
           mark: const LyricsGlyph(),
           active: lyricsOpen,
           tooltip: lyricsTooltip,
           onPressed: onToggleLyrics,
         ),
-        _TrashBtn(),
         volumeControl,
       ],
     );
@@ -979,9 +984,7 @@ class _PlayButton extends StatelessWidget {
 }
 
 class _TrashBtn extends StatelessWidget {
-  const _TrashBtn({this.size = 22});
-
-  final double size;
+  const _TrashBtn();
 
   @override
   Widget build(BuildContext context) {
@@ -989,7 +992,6 @@ class _TrashBtn extends StatelessWidget {
     return _IconBtn(
       icon: Icons.delete_outline_rounded,
       tooltip: '',
-      size: size,
       onPressed: track == null ? null : () => moveTrackToTrash(context, track),
       enabled: track != null,
     );
@@ -1238,8 +1240,9 @@ class _VolumeCapsulePainter extends CustomPainter {
       oldDelegate.volume != volume;
 }
 
-class _QueuePanel extends StatelessWidget {
-  const _QueuePanel({
+/// Floating queue card above the bar — dock height stays on the bar only.
+class _QueueWindow extends StatelessWidget {
+  const _QueueWindow({
     required this.queue,
     required this.currentKey,
     required this.onSelect,
@@ -1253,117 +1256,177 @@ class _QueuePanel extends StatelessWidget {
   final void Function(int oldIndex, int newIndex) onReorder;
   final VoidCallback onClose;
 
+  static const _card = Color(0xFF1C1C1C);
+  static const _cardLift = Color(0xFF2A2A2A);
+
   @override
   Widget build(BuildContext context) {
-    final queueH = MediaQuery.sizeOf(context).height * 0.5;
-    return Container(
-      width: double.infinity,
-      height: queueH,
-      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-      padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.35),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppTheme.paper.withValues(alpha: 0.08)),
-      ),
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(8, 4, 0, 4),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Очередь · ${queue.length}',
-                    style: GoogleFonts.syne(
-                      color: _kYellow,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
-                Text(
-                  'перетащите',
-                  style: GoogleFonts.figtree(color: _kIconDim, fontSize: 11),
-                ),
-                IconButton(
-                  onPressed: onClose,
-                  icon: const Icon(Icons.close, size: 18, color: _kIconDim),
-                ),
-              ],
-            ),
+    final screenH = MediaQuery.sizeOf(context).height;
+    final height = (screenH * 0.48).clamp(280.0, 520.0);
+    final width = MediaQuery.sizeOf(context).width < 560 ? 360.0 : 440.0;
+
+    return Material(
+      color: Colors.transparent,
+      elevation: 0,
+      child: SizedBox(
+        width: width,
+        height: height,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: _card,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.45),
+                blurRadius: 28,
+                offset: const Offset(0, 10),
+              ),
+            ],
           ),
-          Expanded(
-            child: ReorderableListView.builder(
-              buildDefaultDragHandles: false,
-              itemCount: queue.length,
-              onReorderItem: onReorder,
-              itemBuilder: (context, index) {
-                final t = queue[index];
-                final current = t.trackKey == currentKey;
-                return ReorderableDragStartListener(
-                  key: ValueKey(t.trackKey),
-                  index: index,
-                  child: TrackContextMenu(
-                    actions: standardTrackActions(context, t, copyTitle: true),
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        mouseCursor: SystemMouseCursors.click,
-                        onTap: () => onSelect(index),
-                        borderRadius: BorderRadius.circular(8),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 8,
-                          ),
-                          child: Row(
-                            children: [
-                              SizedBox(
-                                width: 22,
-                                child: Text(
-                                  '${index + 1}',
-                                  style: GoogleFonts.figtree(
-                                    color: current ? _kYellow : _kIconDim,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                              Expanded(
-                                child: TrackTitleLine(
-                                  title: t.displayArtist.isEmpty
-                                      ? t.displayTitle
-                                      : '${t.displayArtist} - ${t.displayTitle}',
-                                  note: t.displayNote,
-                                  style: GoogleFonts.figtree(
-                                    color: current ? _kYellow : AppTheme.paper,
-                                    fontWeight: current
-                                        ? FontWeight.w700
-                                        : FontWeight.w500,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ),
-                              MouseRegion(
-                                cursor: SystemMouseCursors.grab,
-                                child: Icon(
-                                  Icons.drag_handle_rounded,
-                                  size: 18,
-                                  color: _kIconDim.withValues(alpha: 0.7),
-                                ),
-                              ),
-                            ],
-                          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 12, 8, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Очередь · ${queue.length}',
+                        style: GoogleFonts.figtree(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 18,
                         ),
                       ),
                     ),
-                  ),
-                );
-              },
-            ),
+                    Text(
+                      'перетащите',
+                      style: GoogleFonts.figtree(
+                        color: _kIconDim,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    IconButton(
+                      tooltip: 'Закрыть',
+                      mouseCursor: SystemMouseCursors.click,
+                      onPressed: onClose,
+                      icon: Container(
+                        width: 32,
+                        height: 32,
+                        decoration: const BoxDecoration(
+                          color: _cardLift,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.close,
+                          size: 18,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: queue.isEmpty
+                    ? Center(
+                        child: Text(
+                          'Очередь пуста',
+                          style: GoogleFonts.figtree(
+                            color: _kIconDim,
+                            fontSize: 14,
+                          ),
+                        ),
+                      )
+                    : ReorderableListView.builder(
+                        padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+                        buildDefaultDragHandles: false,
+                        itemCount: queue.length,
+                        onReorderItem: onReorder,
+                        itemBuilder: (context, index) {
+                          final t = queue[index];
+                          final current = t.trackKey == currentKey;
+                          return ReorderableDragStartListener(
+                            key: ValueKey(t.trackKey),
+                            index: index,
+                            child: TrackContextMenu(
+                              actions: standardTrackActions(
+                                context,
+                                t,
+                                copyTitle: true,
+                              ),
+                              child: Material(
+                                color: current
+                                    ? _cardLift
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(12),
+                                child: InkWell(
+                                  mouseCursor: SystemMouseCursors.click,
+                                  onTap: () => onSelect(index),
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        SizedBox(
+                                          width: 28,
+                                          child: Text(
+                                            '${index + 1}',
+                                            style: GoogleFonts.figtree(
+                                              color: current
+                                                  ? _kYellow
+                                                  : _kIconDim,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: TrackTitleLine(
+                                            title: t.displayArtist.isEmpty
+                                                ? t.displayTitle
+                                                : '${t.displayArtist} - ${t.displayTitle}',
+                                            note: t.displayNote,
+                                            style: GoogleFonts.figtree(
+                                              color: current
+                                                  ? _kYellow
+                                                  : AppTheme.paper,
+                                              fontWeight: current
+                                                  ? FontWeight.w700
+                                                  : FontWeight.w500,
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                        ),
+                                        MouseRegion(
+                                          cursor: SystemMouseCursors.grab,
+                                          child: Icon(
+                                            Icons.drag_handle_rounded,
+                                            size: 18,
+                                            color: _kIconDim.withValues(
+                                              alpha: 0.7,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

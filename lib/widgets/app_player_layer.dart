@@ -91,7 +91,6 @@ class _AppPlayerLayerState extends State<AppPlayerLayer> {
               raw: _lyrics.raw,
               fetching: _lyrics.fetching,
               notFound: _lyrics.notFound,
-              onClose: _lyrics.requestClose,
             ),
           ),
         if (!compact)
